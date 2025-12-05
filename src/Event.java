@@ -1,9 +1,9 @@
 import java.time.LocalDateTime;
 
 public class Event{
-    private final int eventId;
-    private final String title;
-    private final String description;
+    private int eventId;
+    private String title;
+    private String description;
     private LocalDateTime startDateTime;
     private LocalDateTime endDateTime;
 
