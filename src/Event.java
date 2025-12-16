@@ -57,6 +57,23 @@ public class Event{
     public void setCategory(String category){
         this.category = category;
     }
+    //#added by wy
+    public void setEventId(int eventId){ //used in AppendModeBackup() method in EventManager.java (for restoreEvents() method in BackupManager.java)
+        this.eventId = eventId;
+    }
+    public void setTitle(String title){ //used in updateEventTitle() method in EventEditor.java
+        this.title = title;
+    }
+    public void setDescription(String description){
+        this.description = description;
+    }
+    public void setStartDateTime(LocalDateTime startDateTime){
+        this.startDateTime = startDateTime;
+    }
+    public void setEndDateTime(LocalDateTime endDateTime){
+        this.endDateTime = endDateTime;
+    }
+
     // getters
     public int getEventId(){
         return eventId;
@@ -81,6 +98,30 @@ public class Event{
         return category;
     }
 
+    //# added by wy
+    // Convert event in arraylist to CSV string for saving (used in saveEvent() method in EventManager.java) 
+    public String toCsvString() {
+        return this.eventId + "," + this.title + "," + this.description + ","+ this.startDateTime + "," + this.endDateTime + ","+ this.location + ","+ this.category;}
+    
 
+    /**
+     * Constructor used by FileManager to create an Event object 
+     * from a line of CSV data (String array).
+     */
+    public Event(String[] parts) {
+        
+        this.eventId = Integer.parseInt(parts[0]); 
+
+        this.title = parts[1];
+        this.description = parts[2];
+
+        this.startDateTime = LocalDateTime.parse(parts[3]);
+        this.endDateTime = LocalDateTime.parse(parts[4]);
+
+        //change this two when we decide to include location and category
+        //this.location = parts[5];
+     
+       // this.category = parts[6];
+    }
 
 }
