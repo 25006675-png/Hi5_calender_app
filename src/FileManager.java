@@ -50,20 +50,20 @@ public class FileManager {
    
     // Save events to CSV file
     public void saveEvents(List<Event> events) {
-
-    try (PrintWriter pw = new PrintWriter (new FileWriter (EVENT_FILE_PATH))) { 
-        
-        pw.println(EVENT_HEADER);
-        
-        for (Event event: events){
-            pw.println(event.toCsvString()); //toCsvString() method in Event.java
+        File file = new File(EVENT_FILE_PATH);
+        try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
+            
+            pw.println(EVENT_HEADER);
+            
+            for (Event event: events){
+                pw.println(event.toCsvString()); //toCsvString() method in Event.java
+            }
+            System.out.println("Events successfully saved to " + file.getAbsolutePath());
+            
+        } catch (IOException e) {
+            System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
         }
-        System.out.println("Event s successfully saved to "+EVENT_FILE_PATH);
-        
-    } catch (IOException e) {
-        System.err.println("Error writing to " + EVENT_FILE_PATH + ": " + e.getMessage());
     }
-}
     
     
     private boolean ensureDataFolderExists() {

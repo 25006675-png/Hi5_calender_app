@@ -118,10 +118,18 @@ public class Event{
         this.startDateTime = LocalDateTime.parse(parts[3]);
         this.endDateTime = LocalDateTime.parse(parts[4]);
 
-        //change this two when we decide to include location and category
-        //this.location = parts[5];
-     
-       // this.category = parts[6];
+        // Initialize optional fields to avoid nulls
+        if (parts.length > 5) {
+            this.location = parts[5];
+        } else {
+            this.location = "Unspecified";
+        }
+        
+        if (parts.length > 6) {
+            this.category = parts[6];
+        } else {
+            this.category = "Unspecified";
+        }
     }
 
 }
