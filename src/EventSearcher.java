@@ -1,8 +1,10 @@
+import javax.swing.event.ListDataEvent;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class EventSearcher{
     private final FileManager fileManager;
@@ -38,5 +40,23 @@ public class EventSearcher{
         // go to class Event and use getStartDateTime method
         results.sort(Comparator.comparing(Event::getStartDateTime));
         return results;
+    }
+
+    public List<Event> advanceFilter(List<Event> events, String keyword, String caterogy, String location){
+        return events.stream().filter(e -> {
+            boolean matchesKeyword = (keyword == null || keyword.trim().isEmpty()
+                    || e.getTitle().toLowerCase().contains(keyword.toLowerCase())
+                    || e.getDescription().toLowerCase().contains(keyword.toLowerCase()));
+
+            boolean matchesCategory = (caterogy == null
+                    || caterogy.equalsIgnoreCase("All")
+                    || caterogy.toLowerCase().equalsIgnoreCase(caterogy));
+
+            boolean matchesLocation = (location == null
+                    || location.trim().isEmpty()
+                    || location.toLowerCase().contains(location.toLowerCase())
+                    );
+            return matchesKeyword && matchesCategory && matchesLocation;
+        }).toList();
     }
 }
