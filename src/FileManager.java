@@ -3,6 +3,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,6 +21,7 @@ public class FileManager {
     private static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category";
     private static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
 
+    private int maxEventId = 0;
     // Load events from CSV file
     public List<Event> loadEvents() {
     List<Event> events = new ArrayList<>();
@@ -37,7 +39,12 @@ public class FileManager {
         String line;
         while((line=br.readLine())!=null){
             if(!(line.trim()).isEmpty()){
-                events.add(new Event(line.split(",")));
+                Event e = new Event(line.split(","));
+                events.add(e);
+                // update maxEventId while loading the file
+                if(e.getEventId() > maxEventId){
+                    maxEventId = e.getEventId();
+                }
             }
         }
     
@@ -57,7 +64,9 @@ public class FileManager {
         Map<Integer, RecurrenceRule> rules = new HashMap<>();
 
 
+
         try (BufferedReader br = new BufferedReader(new FileReader(RECURRENT_FILE_PATH))) {
+            br.readLine(); // read header (ignored)
             String line;
             while ((line = br.readLine()) != null) {
                 if (!line.trim().isEmpty()) {
@@ -84,20 +93,44 @@ public class FileManager {
     public void saveEvents(List<Event> events) {
         File file = new File(EVENT_FILE_PATH);
         try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
-            
+
             pw.println(EVENT_HEADER);
-            
+
             for (Event event: events){
                 pw.println(event.toCsvString()); //toCsvString() method in Event.java
             }
             System.out.println("Events successfully saved to " + file.getAbsolutePath());
-            
+
         } catch (IOException e) {
             System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
         }
     }
-    
-    
+    public void saveRecurrenceRule(List<RecurrenceRule> rules) {
+        File file = new File(RECURRENT_FILE_PATH);
+        try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
+
+            pw.println(RECURRENT_HEADER);
+
+            for (RecurrenceRule rule : rules) {
+                String recurrentEndDate = (rule.getRecurrentEndDate() == null)
+                        ? "0" : rule.getRecurrentEndDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"));
+
+                String line = (String.format(("%d,%s,%d,%s"),
+                        rule.getEventId(),
+                        rule.getRecurrentInterval(),
+                        rule.getRecurrentTimes(),
+                        recurrentEndDate)
+                );
+                pw.println(line);
+            }
+            System.out.println("Events successfully saved to " + file.getAbsolutePath());
+
+        } catch (IOException e) {
+            System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
+        }
+    }
+
+
     private boolean ensureDataFolderExists() {
         
         Path datafolder = Paths.get(FOLDER_NAME);
@@ -142,7 +175,7 @@ public class FileManager {
             }
             
             // 3. Find the next unique ID in the current live events list
-            int nextId = getNextAvailableEventId(liveEvents); // method below
+            int nextId = getNextAvailableEventId(); // method below
             
             // 4. Merge: Loop through backup events, re-ID them, and add to live list
             for (Event event : backupEvents) {
@@ -180,14 +213,8 @@ public class FileManager {
         }
 
         // Find the next available event ID
-        private int getNextAvailableEventId(List<Event> events) {
-            int maxId = 0;
-            for (Event event : events) {
-                if (event.getEventId() > maxId) {
-                    maxId = event.getEventId();
-                }
-            }
-            return maxId + 1;
+        public int getNextAvailableEventId() {
+            return ++maxEventId;
         }
 
 

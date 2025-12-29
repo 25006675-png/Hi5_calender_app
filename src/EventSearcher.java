@@ -16,7 +16,7 @@ public class EventSearcher{
 
     }
 
-    // BASIC Search : by date range.
+    // BASIC Search: by date range.
 
     public List<Event> searchByDateRange(LocalDateTime start, LocalDateTime end){
         List<Event> results = new ArrayList<>();

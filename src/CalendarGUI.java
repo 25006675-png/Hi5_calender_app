@@ -1,23 +1,34 @@
 import javafx.application.Application;
+import javafx.beans.binding.BooleanBinding;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import org.w3c.dom.Text;
+
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.Objects;
 
 public class CalendarGUI extends Application {
 
     private YearMonth currentYearMonth;
     private LocalDate currentDate; // For Week/Day focus
-    private List<Event> allEvents;
+
+    private FileManager fileManager;
+    private RecurrenceManager recurrenceManager;
+    private EventSearcher searcher;
+
+    private List<Event> visibleEvents;
+//    allEvents changed to visibleEvents (update of searcher which already loadEvents)
+
     private GridPane calendarGrid;
     private ListView<String> eventListView;
     private Label titleLabel;
@@ -33,10 +44,12 @@ public class CalendarGUI extends Application {
         
         // Load Real Data
         try {
-            FileManager fileManager = new FileManager();
-            allEvents = fileManager.loadEvents();
+            fileManager = new FileManager();
+            recurrenceManager = new RecurrenceManager();
+            searcher = new EventSearcher(fileManager, recurrenceManager);
+            // allEvents only for event creation
+
         } catch (Exception e) {
-            allEvents = new ArrayList<>(); // Fallback to empty list
             Alert alert = new Alert(Alert.AlertType.ERROR);
             alert.setTitle("Data Load Error");
             alert.setHeaderText("Could not load events");
@@ -62,7 +75,7 @@ public class CalendarGUI extends Application {
 
         Scene scene = new Scene(root, 1100, 700);
         try {
-            scene.getStylesheets().add(getClass().getResource("style.css").toExternalForm());
+            scene.getStylesheets().add(Objects.requireNonNull(getClass().getResource("style.css")).toExternalForm());
         } catch (Exception e) {
             System.out.println("Could not load style.css: " + e.getMessage());
         }
@@ -73,6 +86,45 @@ public class CalendarGUI extends Application {
         
         drawCalendar();
     }
+
+    private void refreshVisibleEvents(){
+        LocalDateTime start ;
+        LocalDateTime end;
+        String view = viewSwitcher.getValue();
+
+        if (view.contains("Week")){
+            LocalDate startOfWeek = currentDate.minusDays(currentDate.getDayOfWeek().getValue() % 7);
+            start = startOfWeek.atStartOfDay();
+            end = startOfWeek.plusDays(7).atStartOfDay();
+        } else if (view.contains("Day")){
+            start = currentDate.atStartOfDay();
+            end = currentDate.plusDays(1).atStartOfDay();
+
+        //default view: month
+        } else {
+            LocalDate firstDayOfMonth = currentYearMonth.atDay(1);
+
+            // If Oct 1 is Mon (1), we want prev Sunday -> minus 1 day.
+            // If Oct 1 is Sun (7), we start ON that day -> minus 0 days.
+            int dayOfWeekValue = firstDayOfMonth.getDayOfWeek().getValue();
+            int offset = (dayOfWeekValue == 7) ? 0 : dayOfWeekValue;
+
+            LocalDate gridStart = firstDayOfMonth.minusDays(offset);
+
+            // start date + 42 days for a standard 6-rows 7-columns grid
+            LocalDate gridEnd = gridStart.plusDays(42);
+
+            start = gridStart.atStartOfDay();
+            end = gridEnd.atStartOfDay();
+        }
+        visibleEvents = searcher.searchByDateRange(start, end);
+
+        if (searchBar != null && ! searchBar.getText().isEmpty()){
+            visibleEvents = searcher.advanceFilter(visibleEvents, searchBar.getText(), "All", "");
+        }
+
+    }
+
 
     private HBox createTopBar() {
         HBox topBar = new HBox();
@@ -110,7 +162,7 @@ public class CalendarGUI extends Application {
         searchBar = new TextField();
         searchBar.setPromptText("Search events...");
         searchBar.setPrefWidth(200);
-        // searchBar.textProperty().addListener((obs, oldVal, newVal) -> drawCalendar());
+         searchBar.textProperty().addListener((obs, oldVal, newVal) -> drawCalendar());
 
         // Spacer to push Create button to the right
         Region spacer = new Region();
@@ -128,7 +180,7 @@ public class CalendarGUI extends Application {
             new Region() {{ setMinWidth(20); }}, // spacer
             viewSwitcher, 
             new Region() {{ setMinWidth(20); }}, // spacer
-            searchBar, 
+                searchBar,
             spacer, 
             createEventBtn
         );
@@ -193,8 +245,41 @@ public class CalendarGUI extends Application {
         HBox endTimeBox = new HBox(5, endHour, new Label(":"), endMin);
         endTimeBox.setAlignment(Pos.CENTER_LEFT);
 
+        //recurrent info
+        ComboBox<String> repeatUnit = new ComboBox<>();
+        repeatUnit.getItems().addAll("Do not repeat", "Daily", "Monthly", "Annually");
+        repeatUnit.setValue("Do not repeat");
+
+        TextField repeatFreq = new TextField("1");
+
+        // mutual exclusive(only one exists at one time):
+        // either times or endDate
+
+        ToggleGroup endConditionGroup = new ToggleGroup();
+
+        RadioButton timesRadio = new RadioButton("Ends after X times");
+        timesRadio.setToggleGroup(endConditionGroup);
+        timesRadio.setSelected(true);
+        TextField repeatTimes = new TextField("1");
+
+        RadioButton dateRadio = new RadioButton("Recurrence ends on date:");
+        dateRadio.setToggleGroup(endConditionGroup);
+        DatePicker recEndDatePicker = new DatePicker(LocalDate.now().plusMonths(1));
+
+        //logic to enable/disable based on ToggleGroup and RepeatUnit
+        BooleanBinding noRepeat = repeatUnit.valueProperty().isEqualTo("Do not repeat");
+        repeatFreq.disableProperty().bind(noRepeat);
+        timesRadio.disableProperty().bind(noRepeat);
+        dateRadio.disableProperty().bind(noRepeat);
+
+        // if radio button is selected. If not, or if repeat is Do not repeat, disable it
+        repeatTimes.disableProperty().bind(timesRadio.selectedProperty().not().or(noRepeat));
+        recEndDatePicker.disableProperty().bind(dateRadio.selectedProperty().not().or(noRepeat));
+
         // Layout
+        // (col, row)
         grid.add(new Label("Title:"), 0, 0);
+        // (col, row, width(col), length(row))
         grid.add(titleField, 1, 0, 2, 1); 
         
         grid.add(new Label("Description:"), 0, 1);
@@ -207,7 +292,17 @@ public class CalendarGUI extends Application {
         grid.add(new Label("End:"), 0, 3);
         grid.add(endDatePicker, 1, 3);
         grid.add(endTimeBox, 2, 3);
-        
+
+        grid.add(new Label("Repeat Every:"), 0, 4);
+        HBox freqBox = new HBox(5, repeatFreq, repeatUnit);
+        grid.add(freqBox, 1,4, 2, 1);
+
+        grid.add(new Separator(), 0, 5, 3, 1);
+        grid.add(new Label("Stop Condition:"), 0, 6);
+        grid.add(timesRadio, 1, 6);
+        grid.add(repeatTimes, 2, 6);
+        grid.add(dateRadio, 1, 7);
+        grid.add(recEndDatePicker, 2,7);
         dialog.getDialogPane().setContent(grid);
 
         // Convert the result
@@ -215,21 +310,48 @@ public class CalendarGUI extends Application {
             if (dialogButton == createButtonType) {
                 // Logic from EventCreator.java: Create Event Object
                 try {
-                    LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(), 
-                        java.time.LocalTime.of(startHour.getValue(), startMin.getValue()));
-                    LocalDateTime end = LocalDateTime.of(endDatePicker.getValue(), 
-                        java.time.LocalTime.of(endHour.getValue(), endMin.getValue()));
-                    
-                    int newId = allEvents.size() + 1; // Simple ID generation
-                    Event newEvent = new Event(newId, titleField.getText(), descField.getText(), start, end);
-                    
-                    allEvents.add(newEvent);
-                    
-                    // Save to file
-                    FileManager fileManager = new FileManager();
-                    System.out.println("Saving " + allEvents.size() + " events...");
-                    fileManager.saveEvents(allEvents);
-                    
+                    List<Event> allEvent = fileManager.loadEvents();
+
+                    LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(),
+                        LocalTime.of(startHour.getValue(), startMin.getValue()));
+                    LocalDateTime end = LocalDateTime.of(endDatePicker.getValue(),
+                        LocalTime.of(endHour.getValue(), endMin.getValue()));
+
+                    int nextID = fileManager.getNextAvailableEventId();
+                    Event newEvent = new Event(nextID, titleField.getText(), descField.getText(), start, end);
+                    allEvent.add(newEvent);
+
+
+                    if(! repeatUnit.getValue().equalsIgnoreCase("Do not repeat")){
+                        char unit = switch (repeatUnit.getValue()){
+                            case "Daily" -> 'd';
+                            case "Weekly" -> 'w';
+                            case "Montly" -> 'm';
+                            default -> 'y';
+                        };
+                        String interval = repeatFreq.getText().trim() + unit;
+
+                        // default value
+                        int times = 0;
+                        LocalDateTime recEndDate = null;
+
+                        if (timesRadio.isSelected()){
+                            times = Integer.parseInt(repeatTimes.getText().trim());
+                        } else {
+                            recEndDate = recEndDatePicker.getValue().atTime(23, 59);
+                        }
+                        // save recurrentRule to the file
+                        RecurrenceRule newRule = new RecurrenceRule(nextID, interval, times, recEndDate);
+                        Map<Integer, RecurrenceRule> allRules = fileManager.loadRecurrentRules();
+                        allRules.put(nextID, newRule);
+                        System.out.println("Saving recurrent Rules...");
+                        fileManager.saveRecurrenceRule(new ArrayList<>(allRules.values()));
+                    }
+                    // Save events to file
+
+                    System.out.println("Saving " + visibleEvents.size() + " events...");
+                    fileManager.saveEvents(allEvent);
+
                     System.out.println("Event Created and Saved: " + newEvent.getTitle());
                     drawCalendar(); // Refresh view
                 } catch (Exception e) {
@@ -287,18 +409,15 @@ public class CalendarGUI extends Application {
     }
 
     private void drawCalendar() {
+        refreshVisibleEvents();
         String view = viewSwitcher.getValue();
-        
-        if (view.equals("Calendar (Month)")) {
-            drawMonthView();
-        } else if (view.equals("Calendar (Week)")) {
-            drawWeekView();
-        } else if (view.equals("List (Day)")) {
-            drawListDayView();
-        } else if (view.equals("List (Week)")) {
-            drawListWeekView();
-        } else if (view.equals("List (Month)")) {
-            drawListMonthView();
+
+        switch (view) {
+            case "Calendar (Month)" -> drawMonthView();
+            case "Calendar (Week)" -> drawWeekView();
+            case "List (Day)" -> drawListDayView();
+            case "List (Week)" -> drawListWeekView();
+            case "List (Month)" -> drawListMonthView();
         }
     }
 
@@ -336,22 +455,19 @@ public class CalendarGUI extends Application {
 
         LocalDate firstDayOfMonth = currentYearMonth.atDay(1);
         int dayOfWeek = firstDayOfMonth.getDayOfWeek().getValue(); // 1=Mon, 7=Sun
-        int column = (dayOfWeek == 7) ? 0 : dayOfWeek;
-        int row = 1;
+        // show the previous month if first day of month is not Sunday
+        int offset = (dayOfWeek == 7) ? 0 : dayOfWeek;
+        LocalDate gridIterDate = firstDayOfMonth.minusDays(offset);
 
-        int lengthOfMonth = currentYearMonth.lengthOfMonth();
-
-        for (int day = 1; day <= lengthOfMonth; day++) {
-            LocalDate date = currentYearMonth.atDay(day);
-            VBox cell = createDayCell(date, true);
-            calendarGrid.add(cell, column, row);
-
-            column++;
-            if (column > 6) {
-                column = 0;
-                row++;
+        for(int row = 1; row <= 6; row++){
+            for(int col = 0; col < 7; col++){
+                boolean isCurrentMonth = gridIterDate.getMonth().equals(firstDayOfMonth.getMonth());
+                VBox cell = createDayCell(gridIterDate, true, isCurrentMonth);
+                calendarGrid.add(cell, col, row);
+                gridIterDate = gridIterDate.plusDays(1);
             }
         }
+
     }
 
     // Logic inspired by ViewCalendar.showCalendarWeek
@@ -388,7 +504,7 @@ public class CalendarGUI extends Application {
             calendarGrid.add(dayLabel, i, 0);
 
             // Content
-            VBox cell = createDayCell(startOfWeek.plusDays(i), false);
+            VBox cell = createDayCell(startOfWeek.plusDays(i), false, true);
             calendarGrid.add(cell, i, 1);
         }
     }
@@ -426,7 +542,7 @@ public class CalendarGUI extends Application {
         // Header for the day
         eventListView.getItems().add("=== " + date.toString() + " (" + date.getDayOfWeek() + ") ===");
         
-        for (Event event : allEvents) {
+        for (Event event : visibleEvents) {
             if (event.getStartDateTime().toLocalDate().equals(date)) {
                 String entry = String.format("   %s - %s: %s", 
                     event.getStartDateTime().toLocalTime(), 
@@ -443,20 +559,32 @@ public class CalendarGUI extends Application {
         eventListView.getItems().add(""); // Empty line for spacing
     }
 
-    private VBox createDayCell(LocalDate date, boolean showDayNumber) {
+    private VBox createDayCell(LocalDate date, boolean showDayNumber, boolean isCurrentMonth) {
         VBox cell = new VBox();
+        // style: dimmer background if not current month;
+        String bgStyle;
+        if (isCurrentMonth) {
+            bgStyle = "-fx-background-color: white;";
+        }
+        else {
+            bgStyle = "-fx-background-color: #f9f9f9;";
+        }
         cell.getStyleClass().add("calendar-cell");
-        cell.setStyle("-fx-border-color: #ccc; -fx-padding: 5;");
+        cell.setStyle("-fx-border-color: #eeeeee; -fx-padding: 5;" + bgStyle);
         cell.setFillWidth(true);
 
         if (showDayNumber) {
             Label dayNumber = new Label(String.valueOf(date.getDayOfMonth()));
             dayNumber.setMaxWidth(Double.MAX_VALUE);
             dayNumber.setAlignment(Pos.TOP_RIGHT);
+            if (!isCurrentMonth){
+                dayNumber.setStyle("-fx-text-fill: #aaaaaa;");
+                //dimmer text for overflow days
+            }
             cell.getChildren().add(dayNumber);
         }
 
-        for (Event event : allEvents) {
+        for (Event event : visibleEvents) {
             if (event.getStartDateTime().toLocalDate().equals(date)) {
                 Label eventLabel = new Label(event.getTitle());
                 eventLabel.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 2; -fx-font-size: 10px; -fx-background-radius: 3;");
