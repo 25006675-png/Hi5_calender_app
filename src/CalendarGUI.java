@@ -1,3 +1,4 @@
+import com.sun.javafx.event.EventHandlerManager;
 import javafx.application.Application;
 import javafx.beans.binding.BooleanBinding;
 import javafx.geometry.Insets;
@@ -12,10 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 public class CalendarGUI extends Application {
 
@@ -160,9 +158,12 @@ public class CalendarGUI extends Application {
 
         // Search Bar (Logic removed as requested, just UI)
         searchBar = new TextField();
-        searchBar.setPromptText("Search events...");
+        searchBar.setPromptText("Search keywords...");
         searchBar.setPrefWidth(200);
-         searchBar.textProperty().addListener((obs, oldVal, newVal) -> drawCalendar());
+        searchBar.textProperty().addListener((obs, oldVal, newVal) -> drawCalendar());
+
+        Button advancedSearchBtn = new Button("Advanced Search");
+        advancedSearchBtn.setOnAction(e -> new SearchScene(searcher, this).show());
 
         // Spacer to push Create button to the right
         Region spacer = new Region();
@@ -171,7 +172,9 @@ public class CalendarGUI extends Application {
         // Create Event Button
         Button createEventBtn = new Button("Create Event");
         createEventBtn.getStyleClass().add("create-event-btn");
-        createEventBtn.setOnAction(e -> showCreateEventDialog());
+        EventDialog creatingDialog = new EventDialog(fileManager, this::drawCalendar);
+
+        createEventBtn.setOnAction(e -> creatingDialog.create());
 
         topBar.getChildren().addAll(
             prevBtn, nextBtn, 
@@ -181,6 +184,7 @@ public class CalendarGUI extends Application {
             viewSwitcher, 
             new Region() {{ setMinWidth(20); }}, // spacer
                 searchBar,
+            advancedSearchBtn,
             spacer, 
             createEventBtn
         );
@@ -208,162 +212,7 @@ public class CalendarGUI extends Application {
         return sidebar;
     }
 
-    private void showCreateEventDialog() {
-        // This mimics the logic from EventCreator.java but in a GUI Dialog
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Create New Event");
-        dialog.setHeaderText("Enter event details");
 
-        ButtonType createButtonType = new ButtonType("Create", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(createButtonType, ButtonType.CANCEL);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(20, 20, 10, 10));
-
-        // Fields matching EventCreator.java
-        TextField titleField = new TextField();
-        titleField.setPromptText("Event Title");
-        
-        TextField descField = new TextField();
-        descField.setPromptText("Description");
-
-        DatePicker startDatePicker = new DatePicker(LocalDate.now());
-        Spinner<Integer> startHour = new Spinner<>(0, 23, 9);
-        Spinner<Integer> startMin = new Spinner<>(0, 59, 0);
-        startHour.setPrefWidth(60);
-        startMin.setPrefWidth(60);
-        HBox startTimeBox = new HBox(5, startHour, new Label(":"), startMin);
-        startTimeBox.setAlignment(Pos.CENTER_LEFT);
-
-        DatePicker endDatePicker = new DatePicker(LocalDate.now());
-        Spinner<Integer> endHour = new Spinner<>(0, 23, 10);
-        Spinner<Integer> endMin = new Spinner<>(0, 59, 0);
-        endHour.setPrefWidth(60);
-        endMin.setPrefWidth(60);
-        HBox endTimeBox = new HBox(5, endHour, new Label(":"), endMin);
-        endTimeBox.setAlignment(Pos.CENTER_LEFT);
-
-        //recurrent info
-        ComboBox<String> repeatUnit = new ComboBox<>();
-        repeatUnit.getItems().addAll("Do not repeat", "Daily", "Monthly", "Annually");
-        repeatUnit.setValue("Do not repeat");
-
-        TextField repeatFreq = new TextField("1");
-
-        // mutual exclusive(only one exists at one time):
-        // either times or endDate
-
-        ToggleGroup endConditionGroup = new ToggleGroup();
-
-        RadioButton timesRadio = new RadioButton("Ends after X times");
-        timesRadio.setToggleGroup(endConditionGroup);
-        timesRadio.setSelected(true);
-        TextField repeatTimes = new TextField("1");
-
-        RadioButton dateRadio = new RadioButton("Recurrence ends on date:");
-        dateRadio.setToggleGroup(endConditionGroup);
-        DatePicker recEndDatePicker = new DatePicker(LocalDate.now().plusMonths(1));
-
-        //logic to enable/disable based on ToggleGroup and RepeatUnit
-        BooleanBinding noRepeat = repeatUnit.valueProperty().isEqualTo("Do not repeat");
-        repeatFreq.disableProperty().bind(noRepeat);
-        timesRadio.disableProperty().bind(noRepeat);
-        dateRadio.disableProperty().bind(noRepeat);
-
-        // if radio button is selected. If not, or if repeat is Do not repeat, disable it
-        repeatTimes.disableProperty().bind(timesRadio.selectedProperty().not().or(noRepeat));
-        recEndDatePicker.disableProperty().bind(dateRadio.selectedProperty().not().or(noRepeat));
-
-        // Layout
-        // (col, row)
-        grid.add(new Label("Title:"), 0, 0);
-        // (col, row, width(col), length(row))
-        grid.add(titleField, 1, 0, 2, 1); 
-        
-        grid.add(new Label("Description:"), 0, 1);
-        grid.add(descField, 1, 1, 2, 1);
-
-        grid.add(new Label("Start:"), 0, 2);
-        grid.add(startDatePicker, 1, 2);
-        grid.add(startTimeBox, 2, 2);
-
-        grid.add(new Label("End:"), 0, 3);
-        grid.add(endDatePicker, 1, 3);
-        grid.add(endTimeBox, 2, 3);
-
-        grid.add(new Label("Repeat Every:"), 0, 4);
-        HBox freqBox = new HBox(5, repeatFreq, repeatUnit);
-        grid.add(freqBox, 1,4, 2, 1);
-
-        grid.add(new Separator(), 0, 5, 3, 1);
-        grid.add(new Label("Stop Condition:"), 0, 6);
-        grid.add(timesRadio, 1, 6);
-        grid.add(repeatTimes, 2, 6);
-        grid.add(dateRadio, 1, 7);
-        grid.add(recEndDatePicker, 2,7);
-        dialog.getDialogPane().setContent(grid);
-
-        // Convert the result
-        dialog.setResultConverter(dialogButton -> {
-            if (dialogButton == createButtonType) {
-                // Logic from EventCreator.java: Create Event Object
-                try {
-                    List<Event> allEvent = fileManager.loadEvents();
-
-                    LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(),
-                        LocalTime.of(startHour.getValue(), startMin.getValue()));
-                    LocalDateTime end = LocalDateTime.of(endDatePicker.getValue(),
-                        LocalTime.of(endHour.getValue(), endMin.getValue()));
-
-                    int nextID = fileManager.getNextAvailableEventId();
-                    Event newEvent = new Event(nextID, titleField.getText(), descField.getText(), start, end);
-                    allEvent.add(newEvent);
-
-
-                    if(! repeatUnit.getValue().equalsIgnoreCase("Do not repeat")){
-                        char unit = switch (repeatUnit.getValue()){
-                            case "Daily" -> 'd';
-                            case "Weekly" -> 'w';
-                            case "Montly" -> 'm';
-                            default -> 'y';
-                        };
-                        String interval = repeatFreq.getText().trim() + unit;
-
-                        // default value
-                        int times = 0;
-                        LocalDateTime recEndDate = null;
-
-                        if (timesRadio.isSelected()){
-                            times = Integer.parseInt(repeatTimes.getText().trim());
-                        } else {
-                            recEndDate = recEndDatePicker.getValue().atTime(23, 59);
-                        }
-                        // save recurrentRule to the file
-                        RecurrenceRule newRule = new RecurrenceRule(nextID, interval, times, recEndDate);
-                        Map<Integer, RecurrenceRule> allRules = fileManager.loadRecurrentRules();
-                        allRules.put(nextID, newRule);
-                        System.out.println("Saving recurrent Rules...");
-                        fileManager.saveRecurrenceRule(new ArrayList<>(allRules.values()));
-                    }
-                    // Save events to file
-
-                    System.out.println("Saving " + visibleEvents.size() + " events...");
-                    fileManager.saveEvents(allEvent);
-
-                    System.out.println("Event Created and Saved: " + newEvent.getTitle());
-                    drawCalendar(); // Refresh view
-                } catch (Exception e) {
-                    System.out.println("Error creating event: " + e.getMessage());
-                }
-                return createButtonType;
-            }
-            return null;
-        });
-
-        dialog.showAndWait();
-    }
 
     private void previousMonth() {
         String view = viewSwitcher.getValue();
@@ -464,6 +313,7 @@ public class CalendarGUI extends Application {
                 boolean isCurrentMonth = gridIterDate.getMonth().equals(firstDayOfMonth.getMonth());
                 VBox cell = createDayCell(gridIterDate, true, isCurrentMonth);
                 calendarGrid.add(cell, col, row);
+                // col , row are coordinates
                 gridIterDate = gridIterDate.plusDays(1);
             }
         }
@@ -563,15 +413,20 @@ public class CalendarGUI extends Application {
         VBox cell = new VBox();
         // style: dimmer background if not current month;
         String bgStyle;
-        if (isCurrentMonth) {
-            bgStyle = "-fx-background-color: white;";
-        }
-        else {
-            bgStyle = "-fx-background-color: #f9f9f9;";
-        }
+        if (isCurrentMonth) { bgStyle = "-fx-background-color: white;";}
+        else { bgStyle = "-fx-background-color: #f9f9f9;"; }
+
         cell.getStyleClass().add("calendar-cell");
         cell.setStyle("-fx-border-color: #eeeeee; -fx-padding: 5;" + bgStyle);
         cell.setFillWidth(true);
+
+        // click cell background to create event
+        cell.setOnMouseClicked(e ->{
+            // pass the date of this cell so dialog opens with date where the cell is clicked
+            System.out.println("Creating event for date: " + date);
+            EventDialog creatingDialog = new EventDialog(fileManager, this::drawCalendar);
+            creatingDialog.create(date);
+        });
 
         if (showDayNumber) {
             Label dayNumber = new Label(String.valueOf(date.getDayOfMonth()));
@@ -589,10 +444,43 @@ public class CalendarGUI extends Application {
                 Label eventLabel = new Label(event.getTitle());
                 eventLabel.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 2; -fx-font-size: 10px; -fx-background-radius: 3;");
                 eventLabel.setMaxWidth(Double.MAX_VALUE);
+
+                eventLabel.setOnMouseClicked(clickedEvent -> {
+                    clickedEvent.consume();
+                    // consume() prevent same Event in same VBox is chosen together
+                    handleEventInteraction(event);
+                });
+
                 cell.getChildren().add(eventLabel);
+
             }
+
         }
         return cell;
+    }
+
+    public void handleEventInteraction(Event event){
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Event details");
+        alert.setHeaderText(event.getTitle());
+        alert.setContentText("Description: " + event.getDescription());
+
+        ButtonType deleteBtn = new ButtonType("Delete", ButtonBar.ButtonData.LEFT);
+        ButtonType editBtn = new ButtonType("Edit");
+        ButtonType closeBtn = new ButtonType("Close");
+
+        alert.getButtonTypes().setAll(deleteBtn, editBtn, closeBtn);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if(result.isPresent()){
+            EventDialog eventManager = new EventDialog(fileManager, this::drawCalendar);
+            if (result.get() == deleteBtn){
+                eventManager.delete(event);
+
+            } else if (result.get() == editBtn){
+                eventManager.edit(event);
+            }
+        }
     }
 
     public static void main(String[] args) {
