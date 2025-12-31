@@ -2,8 +2,12 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  *
@@ -13,9 +17,12 @@ public class FileManager {
     
     private static final String FOLDER_NAME = "data";
     private static final String EVENT_FILE_PATH = FOLDER_NAME + File.separator + "event.csv";
+    private static final String RECURRENT_FILE_PATH = FOLDER_NAME + File.separator + "recurrent.csv";
     private static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category";
-    
-    // Load events from CSV file    
+    private static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
+
+    private int maxEventId = 0;
+    // Load events from CSV file
     public List<Event> loadEvents() {
     List<Event> events = new ArrayList<>();
     
@@ -32,14 +39,19 @@ public class FileManager {
         String line;
         while((line=br.readLine())!=null){
             if(!(line.trim()).isEmpty()){
-                events.add(new Event(line.split(",")));
+                Event e = new Event(line.split(","));
+                events.add(e);
+                // update maxEventId while loading the file
+                if(e.getEventId() > maxEventId){
+                    maxEventId = e.getEventId();
+                }
             }
         }
     
     }
     // 3. Handle a missing file (Self-Healing file creation)
     catch (FileNotFoundException e){
-        createEmptyEventFile();// method below
+        createEmptyFile(EVENT_FILE_PATH, EVENT_HEADER);// method below
         return loadEvents();
     }
     catch (IOException e) {
@@ -47,25 +59,78 @@ public class FileManager {
 
     return events;
     }
-   
+
+    public Map<Integer, RecurrenceRule> loadRecurrentRules(){
+        Map<Integer, RecurrenceRule> rules = new HashMap<>();
+
+
+
+        try (BufferedReader br = new BufferedReader(new FileReader(RECURRENT_FILE_PATH))) {
+            br.readLine(); // read header (ignored)
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    String[] data = line.split(",");
+                    int Id = Integer.parseInt(data[0].trim());
+                    String interval = data[1].trim();
+                    int times = Integer.parseInt(data[2].trim());
+                    LocalDateTime endDate = data[3].trim().equals("0") ? null : LocalDateTime.parse(data[3]);
+                    rules.put(Id, new RecurrenceRule(Id, interval, times, endDate));
+                }
+            }
+        }catch (FileNotFoundException _){
+            createEmptyFile(RECURRENT_FILE_PATH, RECURRENT_HEADER);
+            return loadRecurrentRules();
+
+        }catch (IOException e){
+            System.err.println("Error loading recurrent.csv: " + e.getMessage());
+        }
+
+        return rules;
+    }
+
     // Save events to CSV file
     public void saveEvents(List<Event> events) {
         File file = new File(EVENT_FILE_PATH);
         try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
-            
+
             pw.println(EVENT_HEADER);
-            
+
             for (Event event: events){
                 pw.println(event.toCsvString()); //toCsvString() method in Event.java
             }
             System.out.println("Events successfully saved to " + file.getAbsolutePath());
-            
+
         } catch (IOException e) {
             System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
         }
     }
-    
-    
+    public void saveRecurrenceRule(List<RecurrenceRule> rules) {
+        File file = new File(RECURRENT_FILE_PATH);
+        try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
+
+            pw.println(RECURRENT_HEADER);
+
+            for (RecurrenceRule rule : rules) {
+                String recurrentEndDate = (rule.getRecurrentEndDate() == null)
+                        ? "0" : rule.getRecurrentEndDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"));
+
+                String line = (String.format(("%d,%s,%d,%s"),
+                        rule.getEventId(),
+                        rule.getRecurrentInterval(),
+                        rule.getRecurrentTimes(),
+                        recurrentEndDate)
+                );
+                pw.println(line);
+            }
+            System.out.println("Events successfully saved to " + file.getAbsolutePath());
+
+        } catch (IOException e) {
+            System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
+        }
+    }
+
+
     private boolean ensureDataFolderExists() {
         
         Path datafolder = Paths.get(FOLDER_NAME);
@@ -81,13 +146,13 @@ public class FileManager {
             }
         }return true;
 }
-        
-        private void createEmptyEventFile() {
-            
-            try(PrintWriter pw = new PrintWriter(new FileWriter(EVENT_FILE_PATH))){
+        // general file creation
+        private void createEmptyFile(String path, String header) {
+
+            try(PrintWriter pw = new PrintWriter(new FileWriter(path))){
                 
-                pw.println(EVENT_HEADER);
-                System.out.println("Created new, empty event file at: "+EVENT_FILE_PATH);
+                pw.println(header);
+                System.out.println("Created new, empty event file at: "+ path);
                 
             }catch (IOException e){
                 System.err.println("Unable to create a new event file: "+e.getMessage());
@@ -110,7 +175,7 @@ public class FileManager {
             }
             
             // 3. Find the next unique ID in the current live events list
-            int nextId = getNextAvailableEventId(liveEvents); // method below
+            int nextId = getNextAvailableEventId(); // method below
             
             // 4. Merge: Loop through backup events, re-ID them, and add to live list
             for (Event event : backupEvents) {
@@ -148,15 +213,10 @@ public class FileManager {
         }
 
         // Find the next available event ID
-        private int getNextAvailableEventId(List<Event> events) {
-            int maxId = 0;
-            for (Event event : events) {
-                if (event.getEventId() > maxId) {
-                    maxId = event.getEventId();
-                }
-            }
-            return maxId + 1;
+        public int getNextAvailableEventId() {
+            return ++maxEventId;
         }
+
 
         // NOTE: This method requires the two helper methods defined previously:
         // 1. public List<Event> loadEventsFromPath(Path customPath)
