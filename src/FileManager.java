@@ -2,12 +2,14 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.*;
 
 /**
  *
@@ -22,10 +24,13 @@ public class FileManager {
     private static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
 
     private int maxEventId = 0;
+    List<Event> events = new ArrayList<>();
+    List<RecurrenceRule> recurrentlist = new ArrayList<>();
+
     // Load events from CSV file
     public List<Event> loadEvents() {
-    List<Event> events = new ArrayList<>();
     
+        this.events.clear();
     // 1. Check for data folder existence and exit if creation fails.
     if (!ensureDataFolderExists()) { //method below
         return events;
@@ -62,7 +67,7 @@ public class FileManager {
 
     public Map<Integer, RecurrenceRule> loadRecurrentRules(){
         Map<Integer, RecurrenceRule> rules = new HashMap<>();
-
+        this.recurrentlist.clear();
 
 
         try (BufferedReader br = new BufferedReader(new FileReader(RECURRENT_FILE_PATH))) {
@@ -75,10 +80,14 @@ public class FileManager {
                     String interval = data[1].trim();
                     int times = Integer.parseInt(data[2].trim());
                     LocalDateTime endDate = data[3].trim().equals("0") ? null : LocalDateTime.parse(data[3]);
-                    rules.put(Id, new RecurrenceRule(Id, interval, times, endDate));
+
+                    RecurrenceRule newRule = new RecurrenceRule(Id, interval, times, endDate);
+
+                    rules.put(Id, newRule); 
+                    this.recurrentlist.add(newRule);
                 }
             }
-        }catch (FileNotFoundException _){
+        }catch (FileNotFoundException e){
             createEmptyFile(RECURRENT_FILE_PATH, RECURRENT_HEADER);
             return loadRecurrentRules();
 
@@ -97,7 +106,7 @@ public class FileManager {
             pw.println(EVENT_HEADER);
 
             for (Event event: events){
-                pw.println(event.toCsvString()); //toCsvString() method in Event.java
+                pw.println(event.toCsvStringE()); //toCsvString() method in Event.java
             }
             System.out.println("Events successfully saved to " + file.getAbsolutePath());
 
@@ -159,57 +168,82 @@ public class FileManager {
             }
         }
 
-        // !the methods below are needed if we want to implement Append Mode Backup feature (in BackupManager.java)!
-        
-        public boolean AppendModeBackup(Path backupFilePath) {
-            
-            // 1. Load the current live events list
-            List<Event> liveEvents = loadEvents(); 
-            
-            // 2. Load the events from the external backup file
-            List<Event> backupEvents = loadEventsFromPath(backupFilePath); // method below
+         public Map<Integer, Integer> mergeAndSaveBackup(List<String> backupLines) {
+    Map<Integer, Integer> idMap = new HashMap<>();
+    
+    // We start IDs from the highest current ID + 1
+    int nextId = getNextAvailableEventId();
 
-            if (backupEvents.isEmpty()) {
-                System.out.println("No events found in the backup file. Nothing to merge.");
-                return true; // Considered successful
+    for (String line : backupLines) {
+        if (line.trim().isEmpty()) continue;
+        
+        Event backupEvent = Event.fromCsvToEvent(line);
+        int oldId = backupEvent.getEventId();
+
+        // --- SMART CHECK: Look for an existing identical event ---
+        Event existingMatch = null;
+        for (Event existing : this.events) {
+            if (isSameEvent(existing, backupEvent)) {
+                existingMatch = existing;
+                break;
             }
-            
-            // 3. Find the next unique ID in the current live events list
-            int nextId = getNextAvailableEventId(); // method below
-            
-            // 4. Merge: Loop through backup events, re-ID them, and add to live list
-            for (Event event : backupEvents) {
-                event.setEventId(nextId++); 
-                liveEvents.add(event);
-            }
-            
-            // 5. Save the combined list back to the live event.csv file
-            saveEvents(liveEvents);
-            
-            System.out.println("✅ " + backupEvents.size() + " events successfully appended.");
-            return true;
         }
 
-        //this method is similiar to loadEvents() but loads from a custom path
-        public List<Event> loadEventsFromPath(Path customPath) {
-            List<Event> events = new ArrayList<>();
-            
-            try (BufferedReader br = new BufferedReader(new FileReader(customPath.toFile()))) {
+        if (existingMatch != null) {
+            // It's a duplicate! Don't add it.
+            // Map the backup's oldId to the existing event's current ID
+            idMap.put(oldId, existingMatch.getEventId());
+            System.out.println("Skipping duplicate event: " + backupEvent.getTitle());
+        } else {
+            // It's a new unique event. Add it.
+            int newId = nextId++;
+            backupEvent.setEventId(newId);
+            idMap.put(oldId, newId);
+            this.events.add(backupEvent);
+        }
+    }
+    
+    saveEvents(this.events); // Save the final merged list
+    return idMap; 
+}
+
+/**
+ * Helper to determine if two events are "The Same".
+ * You can add more checks (like location or description) if you want.
+ */
+private boolean isSameEvent(Event e1, Event e2) {
+    return e1.getTitle().equalsIgnoreCase(e2.getTitle()) && 
+           e1.getStartDateTime().equals(e2.getStartDateTime());
+}
+
+        //allow append mode restore recurrence
+        public void appendRecurrences(List<String> backupRecurLines, java.util.Map<Integer, Integer> idMap) {
+            for (String line : backupRecurLines) {
+
+                RecurrenceRule backupRule = RecurrenceRule.fromCsvR(line);
                 
-                br.readLine(); // Skip header
-                String line;
-                while((line=br.readLine())!=null){
-                    if(!(line.trim()).isEmpty()){
-                        events.add(new Event(line.split(",")));
+                if (backupRule != null) {
+                    int oldId = backupRule.getEventId();
+
+                    // Check if this recurrence belongs to an event we just restored
+                    if (idMap.containsKey(oldId)) {
+                        int newEventId = idMap.get(oldId);
+                        
+                        // Since fields are FINAL, we create a NEW object with the NEW ID
+                        // but copy all other values from the backupRule
+                        RecurrenceRule fixedRule = new RecurrenceRule(
+                            newEventId, 
+                            backupRule.getRecurrentInterval(), 
+                            backupRule.getRecurrentTimes(), 
+                            backupRule.getRecurrentEndDate()
+                        );
+                        // Add to our main list
+                        this.recurrentlist.add(fixedRule);
                     }
                 }
-            } catch (FileNotFoundException e) {
-                // This is expected if the backup file doesn't exist yet
-                System.out.println("No backup file found at the specified path.");
-            } catch (IOException e) {
-                System.err.println("Error reading backup file at " + customPath.toString() + ": " + e.getMessage());
             }
-            return events;
+            // After appending all, save to CSV file
+            saveRecurrenceRule(this.recurrentlist);
         }
 
         // Find the next available event ID
@@ -218,8 +252,44 @@ public class FileManager {
         }
 
 
-        // NOTE: This method requires the two helper methods defined previously:
-        // 1. public List<Event> loadEventsFromPath(Path customPath)
-        // 2. private int getNextAvailableEventId(List<Event> events) 
-        // The Event class must also have a public setter: setEventId(int id).
+        public void exportData(String destinationZipPath) throws IOException {
+            // This creates a single ZIP file containing both your CSVs
+            try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(destinationZipPath))) {
+                addToZip(EVENT_FILE_PATH, "event.csv", zos);
+                addToZip(RECURRENT_FILE_PATH, "recurrent.csv", zos);
+            }
+        }
+
+        private void addToZip(String filePath, String fileName, ZipOutputStream zos) throws IOException {
+            File file = new File(filePath);
+            if (!file.exists()) return; // Don't zip if file doesn't exist yet
+            
+            try (FileInputStream fis = new FileInputStream(file)) {
+                ZipEntry zipEntry = new ZipEntry(fileName);
+                zos.putNextEntry(zipEntry);
+                
+                byte[] buffer = new byte[1024];
+                int length;
+                while ((length = fis.read(buffer)) >= 0) {
+                    zos.write(buffer, 0, length);
+                }
+                zos.closeEntry();
+            }
+        }
+
+        public void importData(String sourceZipPath) throws IOException {
+            // This opens the ZIP and replaces your current event.csv and recurrent.csv
+            try (ZipInputStream zis = new ZipInputStream(new FileInputStream(sourceZipPath))) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    Path targetPath = Paths.get(FOLDER_NAME, entry.getName());
+                    Files.copy(zis, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                    zis.closeEntry();
+                }
+            }
+            // Refresh the memory after importing files
+            this.events.clear();
+            loadEvents();
+            loadRecurrentRules();
+        }
 }        

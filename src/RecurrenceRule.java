@@ -36,4 +36,24 @@ public class RecurrenceRule {
         return recurrentEndDate;
     }
 
+    public static RecurrenceRule fromCsvR(String line) {
+    try {
+        String[] parts = line.split(",");
+        int eventId = Integer.parseInt(parts[0]);
+        String interval = parts[1];
+        int times = Integer.parseInt(parts[2]);
+        
+        LocalDateTime endDate = null;
+        if (parts.length > 3 && !parts[3].equals("null")) {
+            endDate = LocalDateTime.parse(parts[3]);
+        }
+
+        return new RecurrenceRule(eventId, interval, times, endDate);
+    } catch (Exception e) {
+        return null; // Skip lines that are broken
+    }
 }
+
+}
+
+

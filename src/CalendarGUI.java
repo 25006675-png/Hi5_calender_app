@@ -9,6 +9,7 @@ import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import org.w3c.dom.Text;
 
+import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
@@ -202,13 +203,23 @@ public class CalendarGUI extends Application {
         Button homeBtn = new Button("Home");
         Button workBtn = new Button("Work");
         Button personalBtn = new Button("Personal");
+
+        Button backupBtn = new Button("Export Backup");
+        backupBtn.setOnAction(e -> handleBackup());
+
+        Button restoreBtn = new Button("Import Restore");
+        restoreBtn.setOnAction(e -> handleRestore());
+            
         Button settingsBtn = new Button("Settings");
+
+        Button mergeBtn = new Button("Merge/Import CSV");
+        mergeBtn.setOnAction(e -> handleMerge());
         
         // Push settings to bottom
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, spacer, settingsBtn);
+        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, new Separator(), backupBtn, restoreBtn, mergeBtn, spacer, settingsBtn);
         return sidebar;
     }
 
@@ -486,4 +497,119 @@ public class CalendarGUI extends Application {
     public static void main(String[] args) {
         launch(args);
     }
+
+private void handleBackup() {
+    javafx.stage.FileChooser fileChooser = new javafx.stage.FileChooser();
+    fileChooser.setTitle("Save Calendar Backup");
+    fileChooser.setInitialFileName("calendar_backup.zip");
+    fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("Zip Files", "*.zip"));
+
+    java.io.File file = fileChooser.showSaveDialog(root.getScene().getWindow());
+    if (file != null) {
+        try {
+            fileManager.exportData(file.getAbsolutePath());
+            new Alert(Alert.AlertType.INFORMATION, "Backup saved to: " + file.getName()).show();
+        } catch (Exception e) {
+            showError("Backup Error", e.getMessage());
+        }
+    }
+}
+
+private void handleRestore() {
+    Alert alert = new Alert(Alert.AlertType.CONFIRMATION, 
+        "This will replace all current events with the backup data. Continue?", 
+        ButtonType.YES, ButtonType.NO);
+    
+    if (alert.showAndWait().orElse(ButtonType.NO) == ButtonType.YES) {
+        javafx.stage.FileChooser fileChooser = new javafx.stage.FileChooser();
+        fileChooser.setTitle("Select Backup Zip");
+        fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("Zip Files", "*.zip"));
+
+        java.io.File file = fileChooser.showOpenDialog(root.getScene().getWindow());
+        if (file != null) {
+            try {
+                fileManager.importData(file.getAbsolutePath());
+                // IMPORTANT: Refresh your searcher so it sees the new data
+                this.searcher = new EventSearcher(fileManager, recurrenceManager); 
+                drawCalendar(); // Redraw GUI
+                new Alert(Alert.AlertType.INFORMATION, "Restore Successful!").show();
+            } catch (Exception e) {
+                showError("Restore Error", "The zip file might be corrupted or invalid.");
+            }
+        }
+    }
+}
+
+    private void handleMerge() {
+    javafx.stage.FileChooser fileChooser = new javafx.stage.FileChooser();
+    fileChooser.setTitle("Select ZIP Backup to Merge");
+    fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("Zip Files", "*.zip"));
+
+    java.io.File zipFile = fileChooser.showOpenDialog(root.getScene().getWindow());
+    
+    if (zipFile != null) {
+        try {
+            List<String> eventLines = new ArrayList<>();
+            List<String> recurLines = new ArrayList<>();
+
+            // 1. Read the contents of the ZIP file directly into memory
+            try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zipFile))) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(zis));
+                    List<String> lines = new ArrayList<>();
+                    String line;
+                    
+                    // Skip the header for each file and read the rest
+                    reader.readLine(); 
+                    while ((line = reader.readLine()) != null) {
+                        lines.add(line);
+                    }
+
+                    if (entry.getName().equals("event.csv")) {
+                        eventLines = lines;
+                    } else if (entry.getName().equals("recurrent.csv")) {
+                        recurLines = lines;
+                    }
+                    zis.closeEntry();
+                }
+            }
+
+            // 2. Perform the Merge using your existing FileManager methods
+            if (!eventLines.isEmpty()) {
+                // Merge Events and get the ID Map
+                Map<Integer, Integer> idMap = fileManager.mergeAndSaveBackup(eventLines);
+
+                // If there are recurrence rules, append them using the new IDs
+                if (!recurLines.isEmpty()) {
+                    fileManager.appendRecurrences(recurLines, idMap);
+                }
+
+                // 3. Refresh UI
+                this.searcher = new EventSearcher(fileManager, recurrenceManager);
+                drawCalendar();
+                
+                new Alert(Alert.AlertType.INFORMATION, "Backup merged successfully! New events added.").show();
+            } else {
+                showError("Merge Failed", "The zip file did not contain a valid event.csv.");
+            }
+
+        } catch (Exception e) {
+            showError("Merge Error", "Could not process ZIP: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
+
+private void showError(String title, String content) {
+    Alert alert = new Alert(Alert.AlertType.ERROR);
+    alert.setTitle(title);
+    alert.setHeaderText(null); // Keeps the dialog looking clean
+    alert.setContentText(content);
+    
+    // This ensures the popup stays on top of your main window
+    alert.initOwner(root.getScene().getWindow()); 
+    
+    alert.showAndWait();
+}
 }
