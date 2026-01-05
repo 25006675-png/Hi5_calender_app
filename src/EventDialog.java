@@ -125,6 +125,11 @@ public class EventDialog {
         dateRadio.setToggleGroup(endConditionGroup);
         DatePicker recEndDatePicker = new DatePicker();
 
+        // since end date always on the same day as start, picker is diabled
+        endDatePicker.setDisable(true);
+        endDatePicker.valueProperty().bind(startDatePicker.valueProperty());
+        endDatePicker.setStyle("-fx-opacity: 0.7;"); // Make it look "read-only" but readable
+
         // pre-fill with existing event details
         if (isEditMode){
             titleField.setText(eventToEdit.getTitle());
@@ -163,12 +168,41 @@ public class EventDialog {
         } else{
             // create mode : via clicking cell or create button
             startDatePicker.setValue(initialDate != null ? initialDate : LocalDate.now());
-            endDatePicker.setValue(initialDate != null ? initialDate : LocalDate.now());
             // default condition set to repeating times
             timesRadio.setSelected(true);
             recEndDatePicker.setValue(startDatePicker.getValue().plusWeeks(1));
 
         }
+
+        // Date restriction logic
+        // customized date picker :for every cell(picker) , return new cell with custom rules and style
+
+        recEndDatePicker.setDayCellFactory(picker -> new DateCell(){
+            @Override
+            public void updateItem(LocalDate date, boolean empty){
+                super.updateItem(date, empty);  // draw default cell
+
+                // disable if date is before Start Date
+                LocalDate start = startDatePicker.getValue();
+                if (date != null && start != null && date.isBefore(start)){
+                    setDisable(true);
+                    setStyle("-fx-background-color: #ffc0cb;"); // pink colour
+                }
+            }
+
+        });
+
+        // refresh end date when start date changes
+        startDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null){
+                if (endDatePicker.getValue().isBefore(newVal)){
+                    endDatePicker.setValue(newVal);
+                }
+
+                recEndDatePicker.setDayCellFactory(null); // clear and reset factory
+                recEndDatePicker.setDayCellFactory(recEndDatePicker.getDayCellFactory());
+            }
+        });
 
         //logic to enable/disable based on ToggleGroup and RepeatUnit
         BooleanBinding noRepeat = repeatUnit.valueProperty().isEqualTo("Do not repeat");
@@ -236,6 +270,11 @@ public class EventDialog {
                         // delete old events
                         allEvent.removeIf(e -> e.getEventId() == ID);
                         allRules.remove(ID);
+                    }
+
+                    // auto fix if invalid end date
+                    if (end.isBefore(start)){
+                        end = start.plusHours(1);
                     }
                     // update with new event
                     Event newEvent = new Event(ID, titleField.getText(), descField.getText(), start, end,
