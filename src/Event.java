@@ -58,7 +58,7 @@ public class Event{
     public void setCategory(String category){
         this.category = category;
     }
-    //#added by wy
+    
     public void setEventId(int eventId){ //used in AppendModeBackup() method in EventManager.java (for restoreEvents() method in BackupManager.java)
         this.eventId = eventId;
     }
@@ -99,11 +99,19 @@ public class Event{
         return category;
     }
 
-    //# added by wy
+
     // Convert event in arraylist to CSV string for saving (used in saveEvent() method in EventManager.java) 
-    public String toCsvString() {
+    public String toCsvStringE() {
         return this.eventId + "," + this.title + "," + this.description + ","+ this.startDateTime + "," + this.endDateTime + ","+ this.location + ","+ this.category;}
     
+    //convert a line of CSV data into an Event object (used in loadEvents() method in FileManager.java and mergeAndSaveBackup() method in BackupManager.java)
+    public static Event fromCsvToEvent(String line) {
+        if (line == null || line.trim().isEmpty()) {
+            return null;
+        }
+        // This splits the line and passes the array to your existing constructor
+        return new Event(line.split(","));
+    } 
 
     /**
      * Constructor used by FileManager to create an Event object 
@@ -144,5 +152,7 @@ public class Event{
     public int hashCode() {
         return Objects.hash(eventId, startDateTime);
     }
+
+
 
 }
