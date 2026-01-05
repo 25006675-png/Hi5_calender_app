@@ -6,9 +6,12 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import org.w3c.dom.Text;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
@@ -33,9 +36,12 @@ public class CalendarGUI extends Application {
     private TextField searchBar;
     private ComboBox<String> viewSwitcher;
     private BorderPane root;
+    private BackupManager backupManager;
 
     @Override
     public void start(Stage primaryStage) {
+
+
         // Initialize state
         currentYearMonth = YearMonth.now();
         currentDate = LocalDate.now();
@@ -45,6 +51,7 @@ public class CalendarGUI extends Application {
             fileManager = new FileManager();
             recurrenceManager = new RecurrenceManager();
             searcher = new EventSearcher(fileManager, recurrenceManager);
+            backupManager = new BackupManager(fileManager);
             // allEvents only for event creation
 
         } catch (Exception e) {
@@ -202,13 +209,23 @@ public class CalendarGUI extends Application {
         Button homeBtn = new Button("Home");
         Button workBtn = new Button("Work");
         Button personalBtn = new Button("Personal");
+
+        Button backupBtn = new Button("Export Backup");
+        backupBtn.setOnAction(e -> handleBackup());
+
+        Button restoreBtn = new Button("Import Restore");
+        restoreBtn.setOnAction(e -> handleRestore());
+            
         Button settingsBtn = new Button("Settings");
+
+        Button mergeBtn = new Button("Merge/Import CSV");
+        mergeBtn.setOnAction(e -> handleMerge());
         
         // Push settings to bottom
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, spacer, settingsBtn);
+        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, new Separator(), backupBtn, restoreBtn, mergeBtn, spacer, settingsBtn);
         return sidebar;
     }
 
@@ -483,7 +500,76 @@ public class CalendarGUI extends Application {
         }
     }
 
+        private void handleBackup() {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Export Single-File Backup");
+        fileChooser.setInitialFileName("calendar_backup.txt");
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Text Files", "*.txt"));
+
+        File file = fileChooser.showSaveDialog(root.getScene().getWindow());
+
+        if (file != null) {
+            boolean success = backupManager.BackupEvents(file.getAbsolutePath());
+            if (success) {
+                showInfo("Backup Successful", "Backup saved to: " + file.getName());
+            } else {
+                showError("Backup Failed", "Could not export data.");
+            }
+        }
+    }
+        private void handleRestore() {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Restore from Backup (Overwrite Current)");
+        
+        File file = fileChooser.showOpenDialog(root.getScene().getWindow());
+
+        if (file != null) {
+            // 'false' means AppendMode = off (Replace Mode)
+            boolean success = backupManager.restoreEvents(file.getAbsolutePath(), false);
+            
+            if (success) {
+                drawCalendar(); // Refresh the UI
+                showInfo("Restore Successful", "Your calendar has been reset to the backup state.");
+            }
+        }
+    }
+
+        private void handleMerge() {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Merge Backup with Current Calendar");
+        
+        File file = fileChooser.showOpenDialog(root.getScene().getWindow());
+
+        if (file != null) {
+            // 'true' means AppendMode = on (Smart Merge)
+            boolean success = backupManager.restoreEvents(file.getAbsolutePath(), true);
+            
+            if (success) {
+                drawCalendar(); // Refresh the UI
+                showInfo("Merge Successful", "New events added and duplicates updated.");
+            }
+        }
+    }
+
+    private void showInfo(String title, String content) {
+    Alert alert = new Alert(Alert.AlertType.INFORMATION);
+    alert.setTitle(title);
+    alert.setHeaderText(null);
+    alert.setContentText(content);
+    alert.showAndWait();
+}
+
+    private void showError(String title, String content) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.showAndWait();
+    }
+
     public static void main(String[] args) {
         launch(args);
     }
+
+
 }
