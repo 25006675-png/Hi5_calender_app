@@ -46,11 +46,14 @@ public class SearchScene {
         keywordField.setPromptText("Title or Description");
 
         ComboBox<String> categoryBox = new ComboBox<>();
-        categoryBox.getItems().addAll("All", "Work", "Personal", "Study", "Holiday");
-        categoryBox.setValue("All");
+        categoryBox.getItems().addAll("General", "Work", "Personal", "Study", "Holiday");
+        categoryBox.setValue("General");
 
         TextField locationField = new TextField();
         locationField.setPromptText("Location...");
+
+        TextField attendeesField = new TextField();
+        attendeesField.setPromptText("e.g. John;Jacky");
 
         // layout inputs
 
@@ -65,6 +68,8 @@ public class SearchScene {
         inputGrid.add(categoryBox, 3,1);
         inputGrid.add(new Label("Location"), 0, 2);
         inputGrid.add(locationField, 1, 2);
+        inputGrid.add(new Label("Attendees"), 2, 2);
+        inputGrid.add(attendeesField, 3, 2);
 
         Button searchBtn = new Button("Search");
         searchBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;");
@@ -91,8 +96,11 @@ public class SearchScene {
         catCol.setCellValueFactory(new PropertyValueFactory<>("category"));
         TableColumn<Event, String> locationCol = new TableColumn<>("Location");
         locationCol.setCellValueFactory(new PropertyValueFactory<>("location"));
+        TableColumn<Event, String> attendeesCol = new TableColumn<>("Attendees");
+        attendeesCol.setCellValueFactory(new PropertyValueFactory<>("attendees"));
 
-        resultsTable.getColumns().addAll(dateStartCol, dateEndCol, titleCol, catCol, locationCol);
+        //noinspection unchecked
+        resultsTable.getColumns().addAll(dateStartCol, dateEndCol, titleCol, catCol, locationCol, attendeesCol);
         resultsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
 
         // interaction: double click to edit/delete
@@ -118,7 +126,8 @@ public class SearchScene {
                     basicResult,
                     keywordField.getText(),
                     categoryBox.getValue(),
-                    locationField.getText()
+                    locationField.getText(),
+                    attendeesField.getText()
             );
             // getItems returns an ObservableList, setAll on that list replace all its elements
 

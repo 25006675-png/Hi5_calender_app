@@ -4,10 +4,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  *
@@ -15,32 +12,35 @@ import java.util.Map;
  */
 public class FileManager {
     
-    private static final String FOLDER_NAME = "data";
-    private static final String EVENT_FILE_PATH = FOLDER_NAME + File.separator + "event.csv";
-    private static final String RECURRENT_FILE_PATH = FOLDER_NAME + File.separator + "recurrent.csv";
-    private static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category";
-    private static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
+    public static final String FOLDER_NAME = "data";
+    public static final String EVENT_FILE_PATH = FOLDER_NAME + File.separator + "event.csv";
+    public static final String RECURRENT_FILE_PATH = FOLDER_NAME + File.separator + "recurrent.csv";
+    public static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category";
+    public static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
 
+    public static final String ADDITIONAL_FILE_PATH = FOLDER_NAME + File.separator + "additional.csv";
+    public static final String ADDITIONAL_HEADER = "eventId,location,category,attendees";
     private int maxEventId = 0;
+
+
+    public FileManager(){
+        ensureDataFolderExists();
+    }
+
     // Load events from CSV file
     public List<Event> loadEvents() {
-    List<Event> events = new ArrayList<>();
-    
-    // 1. Check for data folder existence and exit if creation fails.
-    if (!ensureDataFolderExists()) { //method below
-        return events;
-    }
-    
+    // use LinkedHashMap to preserve the order in which they are saved
+    Map<Integer, Event> joinMap = new LinkedHashMap<>();
+
     // 2. File Reading
     try (BufferedReader br = new BufferedReader(new FileReader(EVENT_FILE_PATH))) {
-        
         br.readLine();
-        
         String line;
         while((line=br.readLine())!=null){
             if(!(line.trim()).isEmpty()){
                 Event e = new Event(line.split(","));
-                events.add(e);
+
+                joinMap.put(e.getEventId(), e);
                 // update maxEventId while loading the file
                 if(e.getEventId() > maxEventId){
                     maxEventId = e.getEventId();
@@ -56,15 +56,32 @@ public class FileManager {
     }
     catch (IOException e) {
         System.err.println("Error reading file: " + e.getMessage());}
+    //read additional.csv
+    try (BufferedReader br = new BufferedReader(new FileReader(ADDITIONAL_FILE_PATH))){
+        br.readLine();
+        String line;
+        while((line = br.readLine())!= null){
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split(",");
+            int id = Integer.parseInt(parts[0].trim());
 
-    return events;
+            if (joinMap.containsKey(id)){
+                Event eventToUpdate = joinMap.get(id);
+                eventToUpdate.setLocation(parts[1].trim());
+                eventToUpdate.setCategory(parts[2].trim());
+                eventToUpdate.setAttendees(parts[3].trim());
+            }
+        }
+    }catch (IOException e){
+        System.out.println("no additional data found.");
+    }
+    return new ArrayList<>(joinMap.values());
     }
 
     public Map<Integer, RecurrenceRule> loadRecurrentRules(){
         Map<Integer, RecurrenceRule> rules = new HashMap<>();
-
-
-
         try (BufferedReader br = new BufferedReader(new FileReader(RECURRENT_FILE_PATH))) {
             br.readLine(); // read header (ignored)
             String line;
@@ -104,6 +121,17 @@ public class FileManager {
         } catch (IOException e) {
             System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
         }
+
+        try (PrintWriter pw = new PrintWriter(new FileWriter(ADDITIONAL_FILE_PATH))){
+            pw.println(ADDITIONAL_HEADER);
+            for (Event e: events){
+                pw.println(e.toAdditionalCsv()); // method inside Event.java
+            }
+        }catch (IOException e){
+            System.out.println("Fail to save to additional.csv");
+        }
+
+
     }
     public void saveRecurrenceRule(List<RecurrenceRule> rules) {
         File file = new File(RECURRENT_FILE_PATH);

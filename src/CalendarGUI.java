@@ -118,7 +118,7 @@ public class CalendarGUI extends Application {
         visibleEvents = searcher.searchByDateRange(start, end);
 
         if (searchBar != null && ! searchBar.getText().isEmpty()){
-            visibleEvents = searcher.advanceFilter(visibleEvents, searchBar.getText(), "All", "");
+            visibleEvents = searcher.advanceFilter(visibleEvents, searchBar.getText(), "General", "", "");
         }
 
     }

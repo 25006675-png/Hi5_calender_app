@@ -5,6 +5,7 @@ import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 
+import javax.swing.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -77,6 +78,16 @@ public class EventDialog {
         TextField descField = new TextField();
         descField.setPromptText("Description");
 
+        ComboBox<String> categoryBox = new ComboBox<>();
+        categoryBox.getItems().addAll("General", "Work", "Personal", "Study", "Holiday", "Birthday");
+        categoryBox.setEditable(true);
+        categoryBox.setValue("General");
+
+        TextField locationField = new TextField();
+        TextField attendeesField = new TextField();
+        attendeesField.setPromptText("Names (e.g. John; Jane)");
+
+
         DatePicker startDatePicker = new DatePicker(LocalDate.now());
         Spinner<Integer> startHour = new Spinner<>(0, 23, 9);
         Spinner<Integer> startMin = new Spinner<>(0, 59, 0);
@@ -118,6 +129,10 @@ public class EventDialog {
         if (isEditMode){
             titleField.setText(eventToEdit.getTitle());
             descField.setText(eventToEdit.getDescription());
+            locationField.setText(eventToEdit.getLocation());
+            categoryBox.setValue(eventToEdit.getCategory());
+            attendeesField.setText(eventToEdit.getAttendees());
+
             startDatePicker.setValue(eventToEdit.getStartDateTime().toLocalDate());
             startHour.getValueFactory().setValue(eventToEdit.getStartDateTime().getHour());
             startMin.getValueFactory().setValue(eventToEdit.getStartDateTime().getMinute());
@@ -182,16 +197,23 @@ public class EventDialog {
         grid.add(endDatePicker, 1, 3);
         grid.add(endTimeBox, 2, 3);
 
-        grid.add(new Label("Repeat Every:"), 0, 4);
-        HBox freqBox = new HBox(5, repeatFreq, repeatUnit);
-        grid.add(freqBox, 1, 4, 2, 1);
+        grid.add(new Label("Category"), 0, 4);
+        grid.add(categoryBox, 1, 4);
+        grid.add(new Label("Location"), 0,5 );
+        grid.add(locationField, 1, 5);
+        grid.add(new Label("Attendees"), 0, 6);
+        grid.add(attendeesField, 1, 6);
 
-        grid.add(new Separator(), 0, 5, 3, 1);
-        grid.add(new Label("Stop Condition:"), 0, 6);
-        grid.add(timesRadio, 1, 6);
-        grid.add(repeatTimes, 2, 6);
-        grid.add(dateRadio, 1, 7);
-        grid.add(recEndDatePicker, 2, 7);
+        grid.add(new Label("Repeat Every:"), 0, 7);
+        HBox freqBox = new HBox(5, repeatFreq, repeatUnit);
+        grid.add(freqBox, 1, 7, 2, 1);
+
+        grid.add(new Separator(), 0, 8, 3, 1);
+        grid.add(new Label("Stop Condition:"), 0, 9);
+        grid.add(timesRadio, 1, 9);
+        grid.add(repeatTimes, 2, 9);
+        grid.add(dateRadio, 1, 10);
+        grid.add(recEndDatePicker, 2, 10);
 
         dialog.getDialogPane().setContent(grid);
 
@@ -208,13 +230,16 @@ public class EventDialog {
                             LocalTime.of(endHour.getValue(), endMin.getValue()));
 
                     int ID = isEditMode ? eventToEdit.getEventId() : fileManager.getNextAvailableEventId();
+
+                    String attendeesReplaceComma = attendeesField.getText().replace(",",";");
                     if(isEditMode){
                         // delete old events
                         allEvent.removeIf(e -> e.getEventId() == ID);
                         allRules.remove(ID);
                     }
                     // update with new event
-                    Event newEvent = new Event(ID, titleField.getText(), descField.getText(), start, end);
+                    Event newEvent = new Event(ID, titleField.getText(), descField.getText(), start, end,
+                            locationField.getText(), categoryBox.getValue(), attendeesReplaceComma);
                     allEvent.add(newEvent);
 
                     // Save events to file
@@ -266,6 +291,9 @@ public class EventDialog {
         confirm.setHeaderText(null);
 
         Optional<ButtonType> result = confirm.showAndWait();
+        /* Optional act as a container to prevent nullPointerException
+         * if contain any < ButtonType> , return true, else false
+        */
         if (result.isPresent() && result.get() == ButtonType.YES){
             try{
                 List<Event> allEvent = fileManager.loadEvents();
