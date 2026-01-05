@@ -8,9 +8,10 @@ public class Event{
     private LocalDateTime startDateTime;
     private LocalDateTime endDateTime;
 
-    // additional fields
-    private String location;
-    private String category;
+    // additional fields with default value
+    private String location = "None";
+    private String category = "General";
+    private String attendees = "None";
 
     // constructors: same name but java can distinguish them through parameters
 
@@ -20,14 +21,17 @@ public class Event{
      * blueprint (baseEvent) for generating recurring occurrence instances
      */
 
-    public Event(int eventId, String title, String description, LocalDateTime startDateTime, LocalDateTime endDateTime){
+    public Event(int eventId, String title, String description, LocalDateTime startDateTime, LocalDateTime endDateTime,
+                 String location, String category, String attendees) {
+
         this.eventId = eventId;
         this.title = title;
         this.description = description;
         this.startDateTime = startDateTime;
         this.endDateTime = endDateTime;
-        this.location = "Unspecified";
-        this.category = "Unspecified";
+        this.location = location;
+        this.category = category;
+        this.attendees = attendees;
     }
 
     /**
@@ -58,8 +62,13 @@ public class Event{
     public void setCategory(String category){
         this.category = category;
     }
-    
-    public void setEventId(int eventId){ //used in AppendModeBackup() method in EventManager.java (for restoreEvents() method in BackupManager.java)
+
+    public void setAttendees(String attendees) {
+        this.attendees = attendees;
+    }
+
+    //#added by wy
+    public void setEventId(int eventId) { //used in AppendModeBackup() method in EventManager.java (for restoreEvents() method in BackupManager.java)
         this.eventId = eventId;
     }
     public void setTitle(String title){ //used in updateEventTitle() method in EventEditor.java
@@ -99,19 +108,31 @@ public class Event{
         return category;
     }
 
+    public String getAttendees() {
+        return attendees;
+    }
 
+    //# added by wy
     // Convert event in arraylist to CSV string for saving (used in saveEvent() method in EventManager.java) 
-    public String toCsvStringE() {
-        return this.eventId + "," + this.title + "," + this.description + ","+ this.startDateTime + "," + this.endDateTime + ","+ this.location + ","+ this.category;}
-    
-    //convert a line of CSV data into an Event object (used in loadEvents() method in FileManager.java and mergeAndSaveBackup() method in BackupManager.java)
+    public String toCsvString() {
+        return this.eventId + "," + this.title + "," + this.description + "," + this.startDateTime + ","
+                + this.endDateTime + "," + this.location + "," + this.category + "," + this.attendees;
+    }
+
+    public String toAdditionalCsv(){
+        return String.join(",", String.valueOf(eventId),
+                (location == null ? "None" : location),
+                (category == null ? "General" : category),
+                (attendees == null ? "None" : attendees));
+    }
+
     public static Event fromCsvToEvent(String line) {
         if (line == null || line.trim().isEmpty()) {
             return null;
         }
         // This splits the line and passes the array to your existing constructor
         return new Event(line.split(","));
-    } 
+    }
 
     /**
      * Constructor used by FileManager to create an Event object 
@@ -127,18 +148,6 @@ public class Event{
         this.startDateTime = LocalDateTime.parse(parts[3]);
         this.endDateTime = LocalDateTime.parse(parts[4]);
 
-        // Initialize optional fields to avoid nulls
-        if (parts.length > 5) {
-            this.location = parts[5];
-        } else {
-            this.location = "Unspecified";
-        }
-        
-        if (parts.length > 6) {
-            this.category = parts[6];
-        } else {
-            this.category = "Unspecified";
-        }
     }
 
     @Override

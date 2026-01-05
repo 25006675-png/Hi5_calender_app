@@ -5,12 +5,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.zip.*;
 
+import java.util.*;
+import java.util.zip.*;
 /**
  *
  * @author User
@@ -23,29 +20,31 @@ public class FileManager {
     private static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category";
     private static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
 
+    public static final String ADDITIONAL_FILE_PATH = FOLDER_NAME + File.separator + "additional.csv";
+    public static final String ADDITIONAL_HEADER = "eventId,location,category,attendees";
     private int maxEventId = 0;
-    List<Event> events = new ArrayList<>();
-    List<RecurrenceRule> recurrentlist = new ArrayList<>();
+
+
+    public FileManager(){
+        ensureDataFolderExists();
+    }
+
 
     // Load events from CSV file
     public List<Event> loadEvents() {
-    
-        this.events.clear();
-    // 1. Check for data folder existence and exit if creation fails.
-    if (!ensureDataFolderExists()) { //method below
-        return events;
-    }
-    
+
+    // use LinkedHashMap to preserve the order in which they are saved
+    Map<Integer, Event> joinMap = new LinkedHashMap<>();
+
     // 2. File Reading
     try (BufferedReader br = new BufferedReader(new FileReader(EVENT_FILE_PATH))) {
-        
         br.readLine();
-        
         String line;
         while((line=br.readLine())!=null){
             if(!(line.trim()).isEmpty()){
                 Event e = new Event(line.split(","));
-                events.add(e);
+
+                joinMap.put(e.getEventId(), e);
                 // update maxEventId while loading the file
                 if(e.getEventId() > maxEventId){
                     maxEventId = e.getEventId();
@@ -61,15 +60,32 @@ public class FileManager {
     }
     catch (IOException e) {
         System.err.println("Error reading file: " + e.getMessage());}
+    //read additional.csv
+    try (BufferedReader br = new BufferedReader(new FileReader(ADDITIONAL_FILE_PATH))){
+        br.readLine();
+        String line;
+        while((line = br.readLine())!= null){
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split(",");
+            int id = Integer.parseInt(parts[0].trim());
 
-    return events;
+            if (joinMap.containsKey(id)){
+                Event eventToUpdate = joinMap.get(id);
+                eventToUpdate.setLocation(parts[1].trim());
+                eventToUpdate.setCategory(parts[2].trim());
+                eventToUpdate.setAttendees(parts[3].trim());
+            }
+        }
+    }catch (IOException e){
+        System.out.println("no additional data found.");
+    }
+    return new ArrayList<>(joinMap.values());
     }
 
     public Map<Integer, RecurrenceRule> loadRecurrentRules(){
         Map<Integer, RecurrenceRule> rules = new HashMap<>();
-        this.recurrentlist.clear();
-
-
         try (BufferedReader br = new BufferedReader(new FileReader(RECURRENT_FILE_PATH))) {
             br.readLine(); // read header (ignored)
             String line;
@@ -80,11 +96,7 @@ public class FileManager {
                     String interval = data[1].trim();
                     int times = Integer.parseInt(data[2].trim());
                     LocalDateTime endDate = data[3].trim().equals("0") ? null : LocalDateTime.parse(data[3]);
-
-                    RecurrenceRule newRule = new RecurrenceRule(Id, interval, times, endDate);
-
-                    rules.put(Id, newRule); 
-                    this.recurrentlist.add(newRule);
+                    rules.put(Id, new RecurrenceRule(Id, interval, times, endDate));
                 }
             }
         }catch (FileNotFoundException e){
@@ -106,13 +118,24 @@ public class FileManager {
             pw.println(EVENT_HEADER);
 
             for (Event event: events){
-                pw.println(event.toCsvStringE()); //toCsvString() method in Event.java
+                pw.println(event.toCsvString()); //toCsvString() method in Event.java
             }
             System.out.println("Events successfully saved to " + file.getAbsolutePath());
 
         } catch (IOException e) {
             System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
         }
+
+        try (PrintWriter pw = new PrintWriter(new FileWriter(ADDITIONAL_FILE_PATH))){
+            pw.println(ADDITIONAL_HEADER);
+            for (Event e: events){
+                pw.println(e.toAdditionalCsv()); // method inside Event.java
+            }
+        }catch (IOException e){
+            System.out.println("Fail to save to additional.csv");
+        }
+
+
     }
     public void saveRecurrenceRule(List<RecurrenceRule> rules) {
         File file = new File(RECURRENT_FILE_PATH);
@@ -210,14 +233,14 @@ public class FileManager {
  * You can add more checks (like location or description) if you want.
  */
 private boolean isSameEvent(Event e1, Event e2) {
-    return e1.getTitle().equalsIgnoreCase(e2.getTitle()) && 
+    return e1.getTitle().equalsIgnoreCase(e2.getTitle()) &&
            e1.getStartDateTime().equals(e2.getStartDateTime());
 }
 
 public void appendRecurrences(List<String> backupRecurLines, java.util.Map<Integer, Integer> idMap) {
     for (String line : backupRecurLines) {
         RecurrenceRule backupRule = RecurrenceRule.fromCsvR(line);
-        
+
         if (backupRule != null) {
             int oldId = backupRule.getEventId();
 
@@ -230,12 +253,12 @@ public void appendRecurrences(List<String> backupRecurLines, java.util.Map<Integ
                 this.recurrentlist.removeIf(existingRule -> existingRule.getEventId() == newEventId);
 
                 RecurrenceRule fixedRule = new RecurrenceRule(
-                    newEventId, 
-                    backupRule.getRecurrentInterval(), 
-                    backupRule.getRecurrentTimes(), 
+                    newEventId,
+                    backupRule.getRecurrentInterval(),
+                    backupRule.getRecurrentTimes(),
                     backupRule.getRecurrentEndDate()
                 );
-                
+
                 this.recurrentlist.add(fixedRule);
             }
         }
