@@ -14,14 +14,14 @@ import java.util.zip.*;
  */
 public class FileManager {
     
-    private static final String FOLDER_NAME = "data";
-    private static final String EVENT_FILE_PATH = FOLDER_NAME + File.separator + "event.csv";
-    private static final String RECURRENT_FILE_PATH = FOLDER_NAME + File.separator + "recurrent.csv";
-    private static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category";
-    private static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
+    protected static final String FOLDER_NAME = "data";
+    protected static final String EVENT_FILE_PATH = FOLDER_NAME + File.separator + "event.csv";
+    protected static final String RECURRENT_FILE_PATH = FOLDER_NAME + File.separator + "recurrent.csv";
+    protected static final String EVENT_HEADER = "eventId,title,description,startDateTime,endDateTime,location,category,attendees";
+    protected static final String RECURRENT_HEADER = "eventId, recurrentInterval, recurrentTimes, recurrentEndDate";
 
-    public static final String ADDITIONAL_FILE_PATH = FOLDER_NAME + File.separator + "additional.csv";
-    public static final String ADDITIONAL_HEADER = "eventId,location,category,attendees";
+    protected static final String ADDITIONAL_FILE_PATH = FOLDER_NAME + File.separator + "additional.csv";
+    protected static final String ADDITIONAL_HEADER = "eventId,location,category,attendees";
     private int maxEventId = 0;
 
 
@@ -68,14 +68,17 @@ public class FileManager {
             if (line.trim().isEmpty()) {
                 continue;
             }
-            String[] parts = line.split(",");
-            int id = Integer.parseInt(parts[0].trim());
 
-            if (joinMap.containsKey(id)){
-                Event eventToUpdate = joinMap.get(id);
-                eventToUpdate.setLocation(parts[1].trim());
-                eventToUpdate.setCategory(parts[2].trim());
-                eventToUpdate.setAttendees(parts[3].trim());
+            String[] parts = line.split(",");
+            if (parts.length > 0) {
+                int id = Integer.parseInt(parts[0].trim());
+
+                if (joinMap.containsKey(id)) {
+                    Event eventToUpdate = joinMap.get(id);
+                    eventToUpdate.setLocation(parts.length > 1 ? parts[1].trim() : "None");
+                    eventToUpdate.setCategory(parts.length > 2 ? parts[2].trim() : "General");
+                    eventToUpdate.setAttendees(parts.length > 3 ? parts[3].trim() : "None");
+                }
             }
         }
     }catch (IOException e){
@@ -195,17 +198,22 @@ public class FileManager {
             Map<Integer, Integer> idMap = new HashMap<>();
 
             // Ensure we have the current events loaded and maxEventId set
-            loadEvents();
+             // load current event fresh
+            List<Event> currentEvents = loadEvents();
 
             for (String line : backupEventLines) {
-                Event backupEvent = Event.fromCsvToEvent(line);
+
+                if (line.contains("title")) continue;
+                // use constructor
+                Event backupEvent = new Event(line.split(","));
+
                 if (backupEvent == null) continue;
 
                 int oldId = backupEvent.getEventId();
 
                 // If an equivalent event already exists, map oldId -> existingId and skip merging
                 Event existing = null;
-                for (Event e : this.events) {
+                for (Event e : currentEvents) {
                     if (isSameEvent(e, backupEvent)) { existing = e; break; }
                 }
 
@@ -218,55 +226,98 @@ public class FileManager {
                 int newId = getNextAvailableEventId();
                 // Reuse the parsed object but assign it a new id
                 backupEvent.setEventId(newId);
-                this.events.add(backupEvent);
+                currentEvents.add(backupEvent);
                 idMap.put(oldId, newId);
             }
 
             // Persist merged list (will write header too)
-            saveEvents(this.events);
+            saveEvents(currentEvents);
 
             return idMap;
-}
+    }
 
-/**
- * Helper to determine if two events are "The Same".
- * You can add more checks (like location or description) if you want.
- */
-private boolean isSameEvent(Event e1, Event e2) {
-    return e1.getTitle().equalsIgnoreCase(e2.getTitle()) &&
-           e1.getStartDateTime().equals(e2.getStartDateTime());
-}
+    /**
+     * Helper to determine if two events are "The Same".
+     * You can add more checks (like location or description) if you want.
+     */
+    private boolean isSameEvent(Event e1, Event e2) {
+        return e1.getTitle().equalsIgnoreCase(e2.getTitle()) &&
+               e1.getStartDateTime().equals(e2.getStartDateTime());
+    }
 
-public void appendRecurrences(List<String> backupRecurLines, java.util.Map<Integer, Integer> idMap) {
-    for (String line : backupRecurLines) {
-        RecurrenceRule backupRule = RecurrenceRule.fromCsvR(line);
+    public void appendRecurrences(List<String> backupRecurLines, Map<Integer, Integer> idMap) {
 
-        if (backupRule != null) {
-            int oldId = backupRule.getEventId();
+        // load current rules fresh
+        Map<Integer, RecurrenceRule> currentRulesMap = loadRecurrentRules();
+        List<RecurrenceRule> rulesToSave = new ArrayList<>(currentRulesMap.values());
 
-            // Only proceed if the event exists in our current calendar (via the Map)
-            if (idMap.containsKey(oldId)) {
-                int newEventId = idMap.get(oldId);
-                
-                // FIX: Remove any existing rule for this event ID before adding the one from backup
-                // This prevents "Double Rules" for the same event.
-                this.recurrentlist.removeIf(existingRule -> existingRule.getEventId() == newEventId);
+        for (String line : backupRecurLines) {
+            RecurrenceRule backupRule = RecurrenceRule.fromCsvR(line);
 
-                RecurrenceRule fixedRule = new RecurrenceRule(
-                    newEventId,
-                    backupRule.getRecurrentInterval(),
-                    backupRule.getRecurrentTimes(),
-                    backupRule.getRecurrentEndDate()
-                );
+            if (backupRule != null) {
+                int oldId = backupRule.getEventId();
 
-                this.recurrentlist.add(fixedRule);
+                // Only proceed if the event exists in our current calendar (via the Map)
+                if (idMap.containsKey(oldId)) {
+                    int newEventId = idMap.get(oldId);
+
+                    // FIX: Remove any existing rule for this event ID before adding the one from backup
+                    // This prevents "Double Rules" for the same event.
+                    rulesToSave.removeIf(existingRule -> existingRule.getEventId() == newEventId);
+
+                    RecurrenceRule fixedRule = new RecurrenceRule(
+                        newEventId,
+                        backupRule.getRecurrentInterval(),
+                        backupRule.getRecurrentTimes(),
+                        backupRule.getRecurrentEndDate()
+                    );
+
+                    rulesToSave.add(fixedRule);
+                }
+            }
+        }
+        // Final Step: Write the cleaned, merged list back to the disk
+        saveRecurrenceRule(rulesToSave);
+    }
+
+    public void appendAdditional(List<String> backupAdditionalLine, Map<Integer, Integer> idMap) {
+        List<String> currentLines = new ArrayList<>();
+        File additionalFile = new File(ADDITIONAL_FILE_PATH);
+
+        if (additionalFile.exists()){
+            try{
+                currentLines = Files.readAllLines(additionalFile.toPath());
+            }catch (IOException e){
+                System.err.println("Error reading existing additional fields: " + e.getMessage());
+            }
+        }
+
+        if (currentLines.isEmpty()){
+            currentLines.add(ADDITIONAL_HEADER);
+        }
+
+        for(String line : backupAdditionalLine){
+            String[] parts = line.split(",");
+            try {
+                int oldId = Integer.parseInt(parts[0].trim());
+
+                if (idMap.containsKey(oldId)){
+                    // reconstruct the line with new ID
+                    // parts[1...n] are additional fields
+                    int newId = idMap.get(oldId);
+                    StringBuilder newLine = new StringBuilder(String.valueOf(newId));
+                    for(int i = 1; i<parts.length; i++){
+                        newLine.append(",").append(parts[i]);
+                    }
+                    currentLines.add(newLine.toString());
+
+                }
+            }catch (NumberFormatException e){
+                // skip lines that aren't valid data (empty lines)
+                continue;
             }
         }
     }
-    // Final Step: Write the cleaned, merged list back to the disk
-    saveRecurrenceRule(this.recurrentlist);
-}
-
         // Find the next available event ID
         public int getNextAvailableEventId() {
             return ++maxEventId;

@@ -1,7 +1,7 @@
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-public class Event{
+public class Event {
     private int eventId;
     private String title;
     private String description;
@@ -41,10 +41,10 @@ public class Event{
      * It copies the details from the baseEvent
      *
      * @param baseEvent the event template loaded by FileManager
-     * @param newStart start date of a specific recurred instance
-     * @param newEnd end date of a specific recurred instance
+     * @param newStart  start date of a specific recurred instance
+     * @param newEnd    end date of a specific recurred instance
      */
-    public Event(Event baseEvent, LocalDateTime newStart, LocalDateTime newEnd){
+    public Event(Event baseEvent, LocalDateTime newStart, LocalDateTime newEnd) {
         this.eventId = baseEvent.eventId;
         this.title = baseEvent.title;
         this.description = baseEvent.description;
@@ -53,13 +53,15 @@ public class Event{
         // additional fields
         this.location = baseEvent.location;
         this.category = baseEvent.category;
+        this.attendees = baseEvent.attendees;
     }
 
     // setters (used by FileManager when saving event.csv)
-    public void setLocation(String location){
+    public void setLocation(String location) {
         this.location = location;
     }
-    public void setCategory(String category){
+
+    public void setCategory(String category) {
         this.category = category;
     }
 
@@ -71,40 +73,49 @@ public class Event{
     public void setEventId(int eventId) { //used in AppendModeBackup() method in EventManager.java (for restoreEvents() method in BackupManager.java)
         this.eventId = eventId;
     }
-    public void setTitle(String title){ //used in updateEventTitle() method in EventEditor.java
+
+    public void setTitle(String title) { //used in updateEventTitle() method in EventEditor.java
         this.title = title;
     }
-    public void setDescription(String description){
+
+    public void setDescription(String description) {
         this.description = description;
     }
-    public void setStartDateTime(LocalDateTime startDateTime){
+
+    public void setStartDateTime(LocalDateTime startDateTime) {
         this.startDateTime = startDateTime;
     }
-    public void setEndDateTime(LocalDateTime endDateTime){
+
+    public void setEndDateTime(LocalDateTime endDateTime) {
         this.endDateTime = endDateTime;
     }
 
     // getters
-    public int getEventId(){
+    public int getEventId() {
         return eventId;
     }
-    public String getTitle(){
+
+    public String getTitle() {
         return title;
     }
-    public String getDescription(){
+
+    public String getDescription() {
         return description;
     }
-    public LocalDateTime getStartDateTime(){
+
+    public LocalDateTime getStartDateTime() {
         return startDateTime;
     }
-    public LocalDateTime getEndDateTime(){
+
+    public LocalDateTime getEndDateTime() {
         return endDateTime;
     }
 
-    public String getLocation(){
+    public String getLocation() {
         return location;
     }
-    public String getCategory(){
+
+    public String getCategory() {
         return category;
     }
 
@@ -119,34 +130,29 @@ public class Event{
                 + this.endDateTime + "," + this.location + "," + this.category + "," + this.attendees;
     }
 
-    public String toAdditionalCsv(){
+    public String toAdditionalCsv() {
         return String.join(",", String.valueOf(eventId),
                 (location == null ? "None" : location),
                 (category == null ? "General" : category),
                 (attendees == null ? "None" : attendees));
     }
 
-    public static Event fromCsvToEvent(String line) {
-        if (line == null || line.trim().isEmpty()) {
-            return null;
-        }
-        // This splits the line and passes the array to your existing constructor
-        return new Event(line.split(","));
-    }
-
     /**
-     * Constructor used by FileManager to create an Event object 
+     * Constructor used by FileManager to create an Event object
      * from a line of CSV data (String array).
      */
     public Event(String[] parts) {
-        
-        this.eventId = Integer.parseInt(parts[0]); 
+        this.eventId = Integer.parseInt(parts[0]);
 
         this.title = parts[1];
         this.description = parts[2];
 
         this.startDateTime = LocalDateTime.parse(parts[3]);
         this.endDateTime = LocalDateTime.parse(parts[4]);
+
+        this.location = (parts.length > 5) ? parts[5].trim() : "None";
+        this.category = (parts.length > 6) ? parts[6].trim() : "General";
+        this.attendees = (parts.length > 7) ? parts[7].trim() : "None";
 
     }
 
