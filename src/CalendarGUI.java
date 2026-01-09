@@ -125,7 +125,7 @@ public class CalendarGUI extends Application {
         visibleEvents = searcher.searchByDateRange(start, end);
 
         if (searchBar != null && ! searchBar.getText().isEmpty()){
-            visibleEvents = searcher.advanceFilter(visibleEvents, searchBar.getText(), "All", "");
+            visibleEvents = searcher.advanceFilter(visibleEvents, searchBar.getText(), "General", "", "");
         }
 
     }
@@ -483,7 +483,7 @@ public class CalendarGUI extends Application {
         alert.setContentText("Description: " + event.getDescription());
 
         ButtonType deleteBtn = new ButtonType("Delete", ButtonBar.ButtonData.LEFT);
-        ButtonType editBtn = new ButtonType("Edit");
+        ButtonType editBtn = new ButtonType("Details");
         ButtonType closeBtn = new ButtonType("Close");
 
         alert.getButtonTypes().setAll(deleteBtn, editBtn, closeBtn);

@@ -1,9 +1,6 @@
 import javax.swing.event.ListDataEvent;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class EventSearcher{
@@ -42,21 +39,34 @@ public class EventSearcher{
         return results;
     }
 
-    public List<Event> advanceFilter(List<Event> events, String keyword, String caterogy, String location){
+    public List<Event> advanceFilter(List<Event> events, String keyword, String category, String location, String attendees){
+
+        String lowKeyword = keyword == null ? keyword = "" : keyword.toLowerCase().trim();
+        String lowLocation = location == null ? location = "" : location.toLowerCase().trim();
+        String lowAttendees = attendees == null ? attendees = "" : attendees.toLowerCase().trim();
+
         return events.stream().filter(e -> {
-            boolean matchesKeyword = (keyword == null || keyword.trim().isEmpty()
-                    || e.getTitle().toLowerCase().contains(keyword.toLowerCase())
-                    || e.getDescription().toLowerCase().contains(keyword.toLowerCase()));
+            boolean matchesKeyword = (lowKeyword.isEmpty()
+                    || e.getTitle().toLowerCase().contains(lowKeyword)
+                    || e.getDescription().toLowerCase().contains(lowKeyword)
+                    || e.getCategory().toLowerCase().contains(lowKeyword)
+                    || e.getLocation().toLowerCase().contains(lowKeyword)
+                    || e.getAttendees().toLowerCase().contains(lowKeyword)
 
-            boolean matchesCategory = (caterogy == null
-                    || caterogy.equalsIgnoreCase("All")
-                    || caterogy.toLowerCase().equalsIgnoreCase(caterogy));
+            );
 
-            boolean matchesLocation = (location == null
-                    || location.trim().isEmpty()
-                    || location.toLowerCase().contains(location.toLowerCase())
+
+            boolean matchesCategory = (category == null
+                    || category.equalsIgnoreCase("General")
+                    || e.getCategory().toLowerCase().equalsIgnoreCase(category));
+
+            boolean matchesLocation = (lowLocation.isEmpty()
+                    || e.getLocation().toLowerCase().contains(lowLocation)
                     );
-            return matchesKeyword && matchesCategory && matchesLocation;
+            boolean matchesAttendees = (lowAttendees.isEmpty()
+                    || e.getAttendees().toLowerCase().contains(lowAttendees)
+            );
+            return matchesKeyword && matchesCategory && matchesLocation && matchesAttendees;
         }).toList();
     }
 }

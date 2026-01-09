@@ -1,5 +1,6 @@
+package terminal;
+
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Scanner;
 import java.util.regex.Pattern;
 
@@ -87,9 +88,9 @@ public class EventCreator {
     /*public static void main(String[] args) {
         // This allows you to run this file alone to test if your inputs work!
         Scanner testScanner = new Scanner(System.in);
-        EventCreator testCreator = new EventCreator();
+        terminal.EventCreator testCreator = new terminal.EventCreator();
         
-        System.out.println("--- TESTING MODE: EventCreator.java ---");
+        System.out.println("--- TESTING MODE: terminal.EventCreator.java ---");
         
         // Mocking the process with a dummy ID of 0
         try {

@@ -11,12 +11,13 @@ import java.nio.file.NoSuchFileException;
 
 public class BackupManager {
 
-    private static final String EVENT_FILE_PATH = "data" + File.separator + "event.csv";
-    private static final String RECURRENCE_FILE_PATH = "data" + File.separator + "recurrent.csv";
-
+    private static final String EVENT_FILE_PATH = FileManager.EVENT_FILE_PATH;
+    private static final String RECURRENCE_FILE_PATH = FileManager.RECURRENT_FILE_PATH;
+    private static final String ADDITIONAL_FILE_PATH = FileManager.ADDITIONAL_FILE_PATH;
     //backup event file and recurrence file into single file
     private static final String EVENT_MARKER = "---EVENTS---";
     private static final String RECURRENCE_MARKER = "---RECURRENCES---";
+    private static final String ADDITIONAL_MARKER = "---ADDITIONAL---";
 
     private FileManager fm;
 
@@ -39,6 +40,8 @@ public class BackupManager {
             combinedLines.add(RECURRENCE_MARKER);
             combinedLines.addAll(Files.readAllLines(Paths.get(RECURRENCE_FILE_PATH)));
 
+            combinedLines.add(ADDITIONAL_MARKER);
+            combinedLines.addAll(Files.readAllLines(Paths.get(ADDITIONAL_FILE_PATH)));
             // 3. Save everything into the ONE single file
             Files.write(targetFile, combinedLines);
             
@@ -59,26 +62,50 @@ public class BackupManager {
         List<String> allLines = Files.readAllLines(backupPath);
         List<String> backupEventLines = new ArrayList<>();
         List<String> backupRecurLines = new ArrayList<>();
+        List<String> backupAdditionalLines = new ArrayList<>();
         
         // 1. Separate the data using your markers
         boolean readingEvents = false;
         boolean readingRecurrences = false;
-        for (String line : allLines) {
-            if (line.equals(EVENT_MARKER)) { readingEvents = true; readingRecurrences = false; continue; }
-            if (line.equals(RECURRENCE_MARKER)) { readingEvents = false; readingRecurrences = true; continue; }
+        boolean readingAdditional = false;
 
+        for (String line : allLines) {
+            switch (line) {
+                case EVENT_MARKER -> {
+                    readingEvents = true;
+                    readingRecurrences = false;
+                    readingAdditional = false;
+                    continue;
+                }
+                case RECURRENCE_MARKER -> {
+                    readingEvents = false;
+                    readingRecurrences = true;
+                    readingAdditional = false;
+                    continue;
+                }
+                case ADDITIONAL_MARKER -> {
+                    readingEvents = false;
+                    readingRecurrences = false;
+                    readingAdditional = true;
+                    continue;
+                }
+            }
             // Skip empty lines
             if (line == null || line.trim().isEmpty()) continue;
 
             // When reading event section, skip CSV header if present
             if (readingEvents) {
-                if (line.contains("title") && line.contains("description")) continue;
+                if (line.contains("title") || line.contains("description")) continue;
                 backupEventLines.add(line);
             }
             // When reading recurrence section, skip CSV header if present
             else if (readingRecurrences) {
                 if (line.contains("recurrentInterval") || line.contains("recurrentTimes")) continue;
                 backupRecurLines.add(line);
+            }
+            else if (readingAdditional){
+                if (line.contains("category") || line.contains("location")) continue;;
+                backupAdditionalLines.add(line);
             }
         }
 
@@ -89,6 +116,7 @@ public class BackupManager {
 
         // 2. Give that key to the RecurrenceManager to fix the recurrences
         fm.appendRecurrences(backupRecurLines, idMap);
+        fm.appendAdditional(backupAdditionalLines, idMap);
         fm.loadEvents(); 
         fm.loadRecurrentRules();
         System.out.println("✅ Backup appended successfully!");
@@ -97,7 +125,8 @@ public class BackupManager {
             // REPLACE MODE: Parse backup lines into objects and use FileManager save helpers
             List<Event> eventsToSave = new ArrayList<>();
             for (String el : backupEventLines) {
-                Event e = Event.fromCsvToEvent(el);
+                // use constructor
+                Event e = new Event(el.split(","));
                 if (e != null) eventsToSave.add(e);
             }
 
