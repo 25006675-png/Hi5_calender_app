@@ -1,16 +1,20 @@
 package calendar_app;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+
 public class ConflictDetector {
 
-    public static boolean hasConflict(Event e1, Event e2) {
+    public static boolean hasConflict(
+            LocalDate date1, LocalTime start1, LocalTime end1,
+            LocalDate date2, LocalTime start2, LocalTime end2) {
 
         // Different dates → no conflict
-        if (!e1.date.equals(e2.date)) {
+        if (!date1.equals(date2)) {
             return false;
         }
 
         // Time overlap check
-        return e1.startTime.isBefore(e2.endTime) &&
-               e2.startTime.isBefore(e1.endTime);
+        return start1.isBefore(end2) && start2.isBefore(end1);
     }
 }
