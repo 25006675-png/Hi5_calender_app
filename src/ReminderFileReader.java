@@ -1,4 +1,3 @@
-package assignment2;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.ArrayList;

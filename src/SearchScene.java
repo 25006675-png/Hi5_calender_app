@@ -46,7 +46,7 @@ public class SearchScene {
         keywordField.setPromptText("Title or Description");
 
         ComboBox<String> categoryBox = new ComboBox<>();
-        categoryBox.getItems().addAll("General", "Work", "Personal", "Study", "Holiday");
+        categoryBox.getItems().addAll("General", "Work", "Personal", "Study", "Holiday", "Other");
         categoryBox.setValue("General");
 
         TextField locationField = new TextField();

@@ -27,7 +27,7 @@ public class CalendarGUI extends Application {
     private RecurrenceManager recurrenceManager;
     private EventSearcher searcher;
 
-    private List<Event> visibleEvents;
+    private List<Event> visibleEvents = new ArrayList<>();
 //    allEvents changed to visibleEvents (update of searcher which already loadEvents)
 
     private GridPane calendarGrid;
@@ -37,6 +37,11 @@ public class CalendarGUI extends Application {
     private ComboBox<String> viewSwitcher;
     private BorderPane root;
     private BackupManager backupManager;
+    
+    // Notification History
+    private List<String> notificationHistory = new ArrayList<>();
+    private Set<Integer> notifiedEventIds = new HashSet<>();
+    private java.util.concurrent.ScheduledExecutorService scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
     @Override
     public void start(Stage primaryStage) {
@@ -75,6 +80,7 @@ public class CalendarGUI extends Application {
         // Center: Initialized in drawCalendar
         calendarGrid = new GridPane();
         calendarGrid.getStyleClass().add("calendar-grid");
+        root.setCenter(calendarGrid); // Ensure it's added to the scene graph
         
         eventListView = new ListView<>();
 
@@ -89,7 +95,69 @@ public class CalendarGUI extends Application {
         primaryStage.setScene(scene);
         primaryStage.show();
         
-        drawCalendar();
+        drawCalendar(); // Draw immediately so its not blank
+            
+        drawCalendar(); // Draw immediately so its not blank
+        
+        // Start background polling for reminders
+        startReminderService();
+    }
+
+    private void startReminderService() {
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                // Determine if we need to reload files? 
+                // For safety vs corruption, maybe just reload reminders?
+                // Events might be edited while app is open.
+                // fileManager.loadEvents() is safe-ish.
+                // Use searcher to include today's recurrent instances
+                LocalDateTime now = LocalDateTime.now();
+                // Check events for the next 30 days to catch most upcoming reminders (including recurrences)
+                List<Event> allEvents = searcher.searchByDateRange(now.minusMinutes(5), now.plusDays(30)); 
+                List<Reminder> reminders = ReminderFileReader.loadReminders("data/reminder.csv");
+                
+                if (reminders != null && !reminders.isEmpty()) {
+                    List<ReminderService.ReminderNotification> newReminders = ReminderService.getReminders(allEvents, reminders);
+                    
+                    if (!newReminders.isEmpty()) {
+                        javafx.application.Platform.runLater(() -> processNotifications(newReminders));
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("Scheduler Error: " + e.getMessage());
+            }
+        }, 0, 1, java.util.concurrent.TimeUnit.MINUTES);
+    }
+
+    private void processNotifications(List<ReminderService.ReminderNotification> notifications) {
+         boolean alertNeeded = false;
+         StringBuilder elementString = new StringBuilder();
+         String timestamp = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+         for (ReminderService.ReminderNotification n : notifications) {
+             if (!notifiedEventIds.contains(n.getEvent().getEventId())) {
+                 notifiedEventIds.add(n.getEvent().getEventId());
+                 notificationHistory.add("[" + timestamp + "] " + n.getMessage());
+                 elementString.append(n.getMessage()).append("\n");
+                 alertNeeded = true;
+             }
+         }
+
+         if (alertNeeded) {
+              Alert alert = new Alert(Alert.AlertType.INFORMATION);
+              alert.setTitle("Reminders");
+              alert.setHeaderText("You have upcoming events!");
+              alert.setContentText(elementString.toString());
+              alert.show(); 
+         }
+    }
+
+    @Override
+    public void stop() throws Exception {
+        if (scheduler != null && !scheduler.isShutdown()) {
+            scheduler.shutdown();
+        }
+        super.stop();
     }
 
     private void refreshVisibleEvents(){
@@ -207,6 +275,8 @@ public class CalendarGUI extends Application {
         navLabel.getStyleClass().add("sidebar-header");
         
         Button homeBtn = new Button("Home");
+        homeBtn.setOnAction(e -> drawCalendar());
+
         Button workBtn = new Button("Work");
         Button personalBtn = new Button("Personal");
 
@@ -220,16 +290,47 @@ public class CalendarGUI extends Application {
 
         Button mergeBtn = new Button("Merge/Import CSV");
         mergeBtn.setOnAction(e -> handleMerge());
+
+        Button remindersBtn = new Button("Reminders");
+        remindersBtn.setStyle("-fx-background-color: #ffeb3b; -fx-text-fill: black;");
+        remindersBtn.setOnAction(e -> drawNotificationView());
         
         // Push settings to bottom
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, new Separator(), backupBtn, restoreBtn, mergeBtn, spacer, settingsBtn);
+        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, new Separator(), backupBtn, restoreBtn, mergeBtn, remindersBtn, spacer, settingsBtn);
         return sidebar;
     }
 
 
+
+    private void drawNotificationView() {
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(20));
+        content.setAlignment(Pos.TOP_LEFT);
+        
+        Label header = new Label("Notification History");
+        header.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
+        
+        ListView<String> historyList = new ListView<>();
+        historyList.getItems().addAll(notificationHistory);
+        
+        if (notificationHistory.isEmpty()) {
+            historyList.getItems().add("No notifications yet.");
+        }
+        
+        VBox.setVgrow(historyList, Priority.ALWAYS);
+        
+        Button clearBtn = new Button("Clear History");
+        clearBtn.setOnAction(e -> {
+            notificationHistory.clear();
+            drawNotificationView();
+        });
+
+        content.getChildren().addAll(header, historyList, clearBtn);
+        root.setCenter(content);
+    }
 
     private void previousMonth() {
         String view = viewSwitcher.getValue();
@@ -275,7 +376,16 @@ public class CalendarGUI extends Application {
     }
 
     private void drawCalendar() {
-        refreshVisibleEvents();
+        if (searcher == null) return; // Safety check if data load failed
+        
+        try {
+            refreshVisibleEvents();
+        } catch (Exception e) {
+             System.out.println("Error refreshing events: " + e.getMessage());
+             e.printStackTrace();
+             return;
+        }
+
         String view = viewSwitcher.getValue();
 
         switch (view) {
@@ -292,7 +402,7 @@ public class CalendarGUI extends Application {
         calendarGrid.getChildren().clear();
         calendarGrid.getRowConstraints().clear();
         calendarGrid.getColumnConstraints().clear();
-        root.setCenter(calendarGrid);
+        root.setCenter(calendarGrid); 
 
         // Configure columns
         for (int i = 0; i < 7; i++) {
@@ -342,7 +452,7 @@ public class CalendarGUI extends Application {
         calendarGrid.getChildren().clear();
         calendarGrid.getRowConstraints().clear();
         calendarGrid.getColumnConstraints().clear();
-        root.setCenter(calendarGrid);
+        root.setCenter(calendarGrid); 
 
         // Configure columns
         for (int i = 0; i < 7; i++) {
