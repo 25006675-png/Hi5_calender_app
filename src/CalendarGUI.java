@@ -16,7 +16,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import javafx.animation.AnimationTimer;
 
 public class CalendarGUI extends Application {
 
@@ -38,9 +40,13 @@ public class CalendarGUI extends Application {
     private BorderPane root;
     private BackupManager backupManager;
     
+    // UI Containers
+    private HBox homeToolbar;
+    private VBox homeCenterLayout;
+    
     // Notification History
     private List<String> notificationHistory = new ArrayList<>();
-    private Set<Integer> notifiedEventIds = new HashSet<>();
+    private Set<String> notifiedEventIds = new HashSet<>();
     private java.util.concurrent.ScheduledExecutorService scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
     @Override
@@ -69,20 +75,24 @@ public class CalendarGUI extends Application {
 
         root = new BorderPane();
         
-        // Top Bar
-        HBox topBar = createTopBar();
-        root.setTop(topBar);
+        // Global App Bar (Always at top)
+        root.setTop(createGlobalAppBar());
 
         // Sidebar
         VBox sidebar = createSidebar();
         root.setLeft(sidebar);
 
-        // Center: Initialized in drawCalendar
+        // Center: Home View by default
         calendarGrid = new GridPane();
         calendarGrid.getStyleClass().add("calendar-grid");
-        root.setCenter(calendarGrid); // Ensure it's added to the scene graph
         
         eventListView = new ListView<>();
+        
+        // Initialize Home Toolbar
+        createHomeToolbar();
+        
+        homeCenterLayout = new VBox();
+        
 
         Scene scene = new Scene(root, 1100, 700);
         try {
@@ -112,8 +122,8 @@ public class CalendarGUI extends Application {
                 // fileManager.loadEvents() is safe-ish.
                 // Use searcher to include today's recurrent instances
                 LocalDateTime now = LocalDateTime.now();
-                // Check events for the next 30 days to catch most upcoming reminders (including recurrences)
-                List<Event> allEvents = searcher.searchByDateRange(now.minusMinutes(5), now.plusDays(30)); 
+                // Check events for the long range to catch widely set reminders
+                List<Event> allEvents = searcher.searchByDateRange(now.minusMinutes(60), now.plusYears(1)); 
                 List<Reminder> reminders = ReminderFileReader.loadReminders("data/reminder.csv");
                 
                 if (reminders != null && !reminders.isEmpty()) {
@@ -123,10 +133,11 @@ public class CalendarGUI extends Application {
                         javafx.application.Platform.runLater(() -> processNotifications(newReminders));
                     }
                 }
-            } catch (Exception e) {
-                System.out.println("Scheduler Error: " + e.getMessage());
+            } catch (Throwable e) {
+                System.err.println("Scheduler Error: " + e.getMessage());
+                e.printStackTrace();
             }
-        }, 0, 1, java.util.concurrent.TimeUnit.MINUTES);
+        }, 0, 5, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     private void processNotifications(List<ReminderService.ReminderNotification> notifications) {
@@ -135,8 +146,9 @@ public class CalendarGUI extends Application {
          String timestamp = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
          for (ReminderService.ReminderNotification n : notifications) {
-             if (!notifiedEventIds.contains(n.getEvent().getEventId())) {
-                 notifiedEventIds.add(n.getEvent().getEventId());
+             String key = n.getEvent().getEventId() + "_" + n.getEvent().getStartDateTime();
+             if (!notifiedEventIds.contains(key)) {
+                 notifiedEventIds.add(key);
                  notificationHistory.add("[" + timestamp + "] " + n.getMessage());
                  elementString.append(n.getMessage()).append("\n");
                  alertNeeded = true;
@@ -199,16 +211,59 @@ public class CalendarGUI extends Application {
     }
 
 
-    private HBox createTopBar() {
-        HBox topBar = new HBox();
-        topBar.getStyleClass().add("top-bar");
-        topBar.setAlignment(Pos.CENTER_LEFT);
+    private HBox createGlobalAppBar() {
+        HBox globalBar = new HBox();
+        globalBar.getStyleClass().add("global-app-bar");
+        globalBar.setAlignment(Pos.CENTER);
+        globalBar.setPadding(new Insets(10));
+        // Changed color to #2c3e50's complementary or darker shade -> #1a252f (Darker) or #3498db (Accent)
+        // User wants it DIFFERENT from left bar (#2c3e50).
+        // Let's us #34495e (Light Asphalt) or #1abc9c
+        globalBar.setStyle("-fx-background-color: #34495e; -fx-text-fill: white;");
+
+        // Left: Logo
+        Label logoLabel = new Label("Calendar App");
+        logoLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: white;");
+        
+        // Center: Live Clock
+        Label clockLabel = new Label();
+        clockLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+        // Force English Locale
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy | h:mm a", Locale.ENGLISH);
+        
+        AnimationTimer timer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                clockLabel.setText(LocalDateTime.now().format(timeFormatter));
+            }
+        };
+        timer.start();
+        
+        // Right: User Profile (REMOVED as requested)
+        // Label profileIcon = new Label("👤"); 
+
+        Region leftSpacer = new Region();
+        HBox.setHgrow(leftSpacer, Priority.ALWAYS);
+        Region rightSpacer = new Region();
+        HBox.setHgrow(rightSpacer, Priority.ALWAYS);
+
+        globalBar.getChildren().addAll(logoLabel, leftSpacer, clockLabel, rightSpacer);
+        return globalBar;
+    }
+
+    private void createHomeToolbar() {
+        homeToolbar = new HBox(10); // Adding spacing
+        homeToolbar.getStyleClass().add("top-bar");
+        homeToolbar.setAlignment(Pos.CENTER_LEFT);
+        homeToolbar.setPadding(new Insets(10)); // Add padding
 
         // Navigation Buttons
         Button prevBtn = new Button("<");
+        prevBtn.setStyle("-fx-background-radius: 5px;"); // Rounded
         prevBtn.setOnAction(e -> previousMonth());
         
         Button nextBtn = new Button(">");
+        nextBtn.setStyle("-fx-background-radius: 5px;");
         nextBtn.setOnAction(e -> nextMonth());
         
         // View Switcher
@@ -221,6 +276,7 @@ public class CalendarGUI extends Application {
             "List (Month)"
         );
         viewSwitcher.setValue("Calendar (Month)");
+        viewSwitcher.setStyle("-fx-background-radius: 5px;");
         viewSwitcher.setOnAction(e -> {
             updateTitleLabel();
             drawCalendar();
@@ -229,15 +285,19 @@ public class CalendarGUI extends Application {
         // Title
         titleLabel = new Label();
         titleLabel.getStyleClass().add("title-label");
+        // Ensure bold and size from style.css actually works or override
+        titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;");
         updateTitleLabel();
 
         // Search Bar (Logic removed as requested, just UI)
         searchBar = new TextField();
         searchBar.setPromptText("Search keywords...");
         searchBar.setPrefWidth(200);
+        searchBar.setStyle("-fx-background-radius: 15px; -fx-padding: 5 10 5 10;"); // Rounded pill
         searchBar.textProperty().addListener((obs, oldVal, newVal) -> drawCalendar());
 
         Button advancedSearchBtn = new Button("Advanced Search");
+        advancedSearchBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #3498db; -fx-underline: true;");
         advancedSearchBtn.setOnAction(e -> new SearchScene(searcher, this).show());
 
         // Spacer to push Create button to the right
@@ -245,62 +305,131 @@ public class CalendarGUI extends Application {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         // Create Event Button
-        Button createEventBtn = new Button("Create Event");
+        Button createEventBtn = new Button("+ Create Event");
         createEventBtn.getStyleClass().add("create-event-btn");
+        createEventBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5px; -fx-font-weight: bold;");
         EventDialog creatingDialog = new EventDialog(fileManager, this::drawCalendar);
 
         createEventBtn.setOnAction(e -> creatingDialog.create());
 
-        topBar.getChildren().addAll(
-            prevBtn, nextBtn, 
-            new Region() {{ setMinWidth(10); }}, // small spacer
-            titleLabel, 
-            new Region() {{ setMinWidth(20); }}, // spacer
-            viewSwitcher, 
-            new Region() {{ setMinWidth(20); }}, // spacer
-                searchBar,
+        // Layout assembly
+        HBox leftGrp = new HBox(5, prevBtn, titleLabel, nextBtn, viewSwitcher);
+        leftGrp.setAlignment(Pos.CENTER_LEFT);
+        
+        homeToolbar.getChildren().addAll(
+            leftGrp,
+            new Region() {{ setMinWidth(20); }},
+            searchBar,
             advancedSearchBtn,
             spacer, 
             createEventBtn
         );
-        return topBar;
     }
 
+    private void drawSettingsView() {
+        VBox settingsContainer = new VBox(20);
+        settingsContainer.setPadding(new Insets(20));
+        settingsContainer.setAlignment(Pos.TOP_LEFT);
+        
+        // Toolbar for settings
+        HBox toolbar = new HBox();
+        Label title = new Label("SETTINGS");
+        title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        toolbar.getChildren().add(title);
+        
+        // Content
+        Label content = new Label("Application preferences and account configurations will appear here.");
+        content.setStyle("-fx-font-size: 14px; -fx-text-fill: #666;");
+        
+        settingsContainer.getChildren().addAll(toolbar, new Separator(), content);
+        
+        root.setCenter(settingsContainer);
+    }
+    
     private VBox createSidebar() {
         VBox sidebar = new VBox();
         sidebar.getStyleClass().add("sidebar");
-        sidebar.setPrefWidth(200);
-        
-        Label navLabel = new Label("MY CALENDARS");
-        navLabel.getStyleClass().add("sidebar-header");
-        
-        Button homeBtn = new Button("Home");
-        homeBtn.setOnAction(e -> drawCalendar());
+        sidebar.setPrefWidth(220);
+        sidebar.setStyle("-fx-background-color: #2c3e50;"); 
 
-        Button workBtn = new Button("Work");
-        Button personalBtn = new Button("Personal");
+        // Helper to create styled sidebar buttons
+        java.util.function.Function<String, Button> createBtn = (text) -> {
+            Button btn = new Button(text);
+            btn.setMaxWidth(Double.MAX_VALUE);
+            btn.setAlignment(Pos.CENTER_LEFT);
+            btn.setPadding(new Insets(10, 20, 10, 20));
+            String baseStyle = "-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-cursor: hand;";
+            btn.setStyle(baseStyle);
+            return btn;
+        };
+        
+        List<Button> navButtons = new ArrayList<>();
+
+        Button homeBtn = createBtn.apply("Home");
+        Button analysisBtn = createBtn.apply("Analysis");
+        Button remindersBtn = createBtn.apply("Reminders");
+
+        navButtons.add(homeBtn);
+        navButtons.add(analysisBtn);
+        navButtons.add(remindersBtn);
+
+        javafx.event.EventHandler<javafx.event.ActionEvent> setAsActive = e -> {
+            Button source = (Button) e.getSource();
+            for(Button b : navButtons) {
+                b.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-cursor: hand;");
+            }
+            source.setStyle("-fx-background-color: #f1c40f; -fx-text-fill: #2c3e50; -fx-font-weight: bold; -fx-font-size: 14px;");
+        };
+
+        homeBtn.setOnAction(e -> {
+            setAsActive.handle(e);
+            drawCalendar();
+        });
+
+        analysisBtn.setOnAction(e -> {
+             setAsActive.handle(e);
+             drawAnalysisView();
+        });
+        
+        remindersBtn.setOnAction(e -> {
+            setAsActive.handle(e);
+            drawNotificationView();
+        });
+
+        // Other buttons
+        Button settingsBtn = new Button("Settings");
+        settingsBtn.setMaxWidth(Double.MAX_VALUE);
+        settingsBtn.setOnAction(e -> drawSettingsView());
 
         Button backupBtn = new Button("Export Backup");
+        backupBtn.setMaxWidth(Double.MAX_VALUE);
         backupBtn.setOnAction(e -> handleBackup());
-
+        
         Button restoreBtn = new Button("Import Restore");
+        restoreBtn.setMaxWidth(Double.MAX_VALUE);
         restoreBtn.setOnAction(e -> handleRestore());
-            
-        Button settingsBtn = new Button("Settings");
 
         Button mergeBtn = new Button("Merge/Import CSV");
+        mergeBtn.setMaxWidth(Double.MAX_VALUE);
         mergeBtn.setOnAction(e -> handleMerge());
 
-        Button remindersBtn = new Button("Reminders");
-        remindersBtn.setStyle("-fx-background-color: #ffeb3b; -fx-text-fill: black;");
-        remindersBtn.setOnAction(e -> drawNotificationView());
-        
-        // Push settings to bottom
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        sidebar.getChildren().addAll(navLabel, homeBtn, workBtn, personalBtn, new Separator(), backupBtn, restoreBtn, mergeBtn, remindersBtn, spacer, settingsBtn);
+        sidebar.getChildren().addAll(
+            new Region() {{ setMinHeight(20); }},
+            homeBtn, analysisBtn, remindersBtn, 
+            new Separator() {{ setPadding(new Insets(10,0,10,0)); }}, 
+            backupBtn, restoreBtn, mergeBtn, 
+            spacer, 
+            settingsBtn
+        );
         return sidebar;
+    }
+
+    private void drawAnalysisView() {
+        EventStatistic stats = new EventStatistic(fileManager, recurrenceManager);
+        root.setCenter(stats.getView());
     }
 
 
@@ -386,6 +515,12 @@ public class CalendarGUI extends Application {
              return;
         }
 
+        // Ensure Home View is Active
+        // If center is not homeCenterLayout? 
+        if (root.getCenter() != homeCenterLayout) {
+             root.setCenter(homeCenterLayout);
+        }
+
         String view = viewSwitcher.getValue();
 
         switch (view) {
@@ -402,7 +537,10 @@ public class CalendarGUI extends Application {
         calendarGrid.getChildren().clear();
         calendarGrid.getRowConstraints().clear();
         calendarGrid.getColumnConstraints().clear();
-        root.setCenter(calendarGrid); 
+        
+        // Set Center of Home Layout, NOT root
+        homeCenterLayout.getChildren().setAll(homeToolbar, calendarGrid);
+        VBox.setVgrow(calendarGrid, Priority.ALWAYS);
 
         // Configure columns
         for (int i = 0; i < 7; i++) {
@@ -444,7 +582,10 @@ public class CalendarGUI extends Application {
                 gridIterDate = gridIterDate.plusDays(1);
             }
         }
-
+        
+        // Ensure Center is updated (redundant if done at top, but safe)
+        homeCenterLayout.getChildren().setAll(homeToolbar, calendarGrid);
+        VBox.setVgrow(calendarGrid, Priority.ALWAYS);
     }
 
     // Logic inspired by ViewCalendar.showCalendarWeek
@@ -452,7 +593,9 @@ public class CalendarGUI extends Application {
         calendarGrid.getChildren().clear();
         calendarGrid.getRowConstraints().clear();
         calendarGrid.getColumnConstraints().clear();
-        root.setCenter(calendarGrid); 
+        
+        homeCenterLayout.getChildren().setAll(homeToolbar, calendarGrid);
+        VBox.setVgrow(calendarGrid, Priority.ALWAYS);
 
         // Configure columns
         for (int i = 0; i < 7; i++) {
@@ -489,14 +632,17 @@ public class CalendarGUI extends Application {
     // Logic inspired by ViewCalendar.showListView
     private void drawListDayView() {
         eventListView.getItems().clear();
-        root.setCenter(eventListView);
+        // Set Center of Home Layout
+        homeCenterLayout.getChildren().setAll(homeToolbar, eventListView);
+        VBox.setVgrow(eventListView, Priority.ALWAYS);
         
         addEventsForDateToList(currentDate);
     }
 
     private void drawListWeekView() {
         eventListView.getItems().clear();
-        root.setCenter(eventListView);
+        homeCenterLayout.getChildren().setAll(homeToolbar, eventListView);
+        VBox.setVgrow(eventListView, Priority.ALWAYS);
 
         LocalDate startOfWeek = currentDate.minusDays(currentDate.getDayOfWeek().getValue() % 7);
         for (int i = 0; i < 7; i++) {
@@ -506,7 +652,8 @@ public class CalendarGUI extends Application {
 
     private void drawListMonthView() {
         eventListView.getItems().clear();
-        root.setCenter(eventListView);
+        homeCenterLayout.getChildren().setAll(homeToolbar, eventListView);
+        VBox.setVgrow(eventListView, Priority.ALWAYS);
 
         int length = currentYearMonth.lengthOfMonth();
         for (int i = 1; i <= length; i++) {
@@ -569,7 +716,19 @@ public class CalendarGUI extends Application {
         for (Event event : visibleEvents) {
             if (event.getStartDateTime().toLocalDate().equals(date)) {
                 Label eventLabel = new Label(event.getTitle());
-                eventLabel.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 2; -fx-font-size: 10px; -fx-background-radius: 3;");
+                
+                // Color Logic based on Category
+                String colorHex = "#bdc3c7"; // Default Grey
+                switch (event.getCategory()) {
+                    case "Work" -> colorHex = "#e74c3c";
+                    case "Personal" -> colorHex = "#9b59b6";
+                    case "Study" -> colorHex = "#3498db";
+                    case "Holiday" -> colorHex = "#2ecc71";
+                    case "Other" -> colorHex = "#f1c40f";
+                    case "General" -> colorHex = "#bdc3c7";
+                }
+                
+                eventLabel.setStyle("-fx-background-color: " + colorHex + "; -fx-text-fill: white; -fx-padding: 2; -fx-font-size: 10px; -fx-background-radius: 3; -fx-font-weight: bold;");
                 eventLabel.setMaxWidth(Double.MAX_VALUE);
 
                 eventLabel.setOnMouseClicked(clickedEvent -> {
