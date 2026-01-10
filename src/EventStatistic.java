@@ -1,10 +1,8 @@
 import javafx.geometry.Pos;
-import javafx.geometry.Side;
 import javafx.scene.chart.*;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.Rectangle;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
