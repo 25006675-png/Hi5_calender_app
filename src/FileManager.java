@@ -2,12 +2,9 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-
 import java.util.*;
-import java.util.zip.*;
 /**
  *
  * @author User
@@ -206,8 +203,6 @@ public class FileManager {
                 if (line.contains("title")) continue;
                 // use constructor
                 Event backupEvent = new Event(line.split(","));
-
-                if (backupEvent == null) continue;
 
                 int oldId = backupEvent.getEventId();
 

@@ -23,7 +23,11 @@ public class RecurrenceManager{
 
 //        Step forward to reach the first event after seacrchStart datetime
         while (current.isBefore(searchStart)){
-
+            // Check if this instance overlaps the search start window
+            LocalDateTime instanceEnd = current.plusMinutes(durationMinutes);
+            if (instanceEnd.isAfter(searchStart)) {
+                break; // Found an overlapping instance, stop skipping
+            }
             // recurrent time as variable, endDateTime = null
             if (recurrentTimes > 0 && currentCount > recurrentTimes){
                 break;

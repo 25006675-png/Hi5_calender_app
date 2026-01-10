@@ -5,13 +5,11 @@ import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 
-import javax.swing.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -36,10 +34,12 @@ import java.util.Optional;
  */
 public class EventDialog {
     private final FileManager fileManager;
+    private final RecurrenceManager recurrenceManager;
     private final Runnable onSaveCallback;
 
-    public EventDialog(FileManager fileManager, Runnable onSaveCallback){
+    public EventDialog(FileManager fileManager, RecurrenceManager recurrenceManager, Runnable onSaveCallback){
         this.fileManager = fileManager;
+        this.recurrenceManager = recurrenceManager;
         this.onSaveCallback = onSaveCallback;
     }
 
@@ -79,7 +79,7 @@ public class EventDialog {
         descField.setPromptText("Description");
 
         ComboBox<String> categoryBox = new ComboBox<>();
-        categoryBox.getItems().addAll("General", "Work", "Personal", "Study", "Holiday", "Birthday");
+        categoryBox.getItems().addAll("General", "Work", "Personal", "Study", "Holiday", "Other");
         categoryBox.setEditable(true);
         categoryBox.setValue("General");
 
@@ -87,22 +87,132 @@ public class EventDialog {
         TextField attendeesField = new TextField();
         attendeesField.setPromptText("Names (e.g. John; Jane)");
 
+        // REMINDER
+        ComboBox<String> reminderBox = new ComboBox<>();
+        reminderBox.getItems().addAll("None", "15 minutes before", "30 minutes before", "1 hour before", "1 day before", "Custom");
+        reminderBox.getSelectionModel().selectFirst();
+        
+        // Custom Reminder Inputs (Hidden by default)
+        HBox customReminderBox = new HBox(5);
+        Spinner<Integer> customValSpinner = new Spinner<>(1, 365, 1);
+        customValSpinner.setEditable(true);
+        customValSpinner.setPrefWidth(60);
+        
+        ComboBox<String> customUnitBox = new ComboBox<>();
+        customUnitBox.getItems().addAll("minute before", "hour before", "day before"); // Default singular
+        customUnitBox.setValue("minute before");
+        
+        // Listener for singular/plural
+        customValSpinner.valueProperty().addListener((obs, oldVal, newVal) -> {
+            String currentUnit = customUnitBox.getValue();
+            // Get base (e.g., "minute" from "minute before" or "minutes before")
+            String base = currentUnit.split(" ")[0];
+            if (base.endsWith("s")) base = base.substring(0, base.length() - 1);
+            
+            if (newVal > 1) {
+                // Pluralize
+                customUnitBox.getItems().setAll("minutes before", "hours before", "days before");
+                customUnitBox.setValue(base + "s before");
+            } else {
+                // Singularize
+                customUnitBox.getItems().setAll("minute before", "hour before", "day before");
+                customUnitBox.setValue(base + " before");
+            }
+        });
 
+        customReminderBox.getChildren().addAll(customValSpinner, customUnitBox);
+        customReminderBox.setVisible(false);
+        customReminderBox.setManaged(false); // Don't take up space when hidden
+
+        // Send custom reminder logic
+        reminderBox.setOnAction(e -> {
+            boolean isCustom = "Custom".equals(reminderBox.getValue());
+            customReminderBox.setVisible(isCustom);
+            customReminderBox.setManaged(isCustom);
+        });
+
+        LocalTime nowTime = LocalTime.now();
         DatePicker startDatePicker = new DatePicker(LocalDate.now());
-        Spinner<Integer> startHour = new Spinner<>(0, 23, 9);
-        Spinner<Integer> startMin = new Spinner<>(0, 59, 0);
-        startHour.setPrefWidth(60);
-        startMin.setPrefWidth(60);
+        
+        // Helper to create 2-digit formatted editable spinner
+        java.util.function.Function<Integer, Spinner<Integer>> createTimeSpinner = (max) -> {
+            Spinner<Integer> s = new Spinner<>(0, max, 0);
+            s.setEditable(true);
+            s.setPrefWidth(60);
+            SpinnerValueFactory.IntegerSpinnerValueFactory factory = 
+                (SpinnerValueFactory.IntegerSpinnerValueFactory) s.getValueFactory();
+            factory.setConverter(new javafx.util.StringConverter<Integer>() {
+                @Override
+                public String toString(Integer object) {
+                    return String.format("%02d", object);
+                }
+                @Override
+                public Integer fromString(String string) {
+                    try { return Integer.parseInt(string); } catch(Exception e) { return 0; }
+                }
+            });
+            return s;
+        };
+
+        Spinner<Integer> startHour = createTimeSpinner.apply(23);
+        startHour.getValueFactory().setValue(nowTime.getHour());
+        
+        Spinner<Integer> startMin = createTimeSpinner.apply(59);
+        startMin.getValueFactory().setValue(nowTime.getMinute());
+        
         HBox startTimeBox = new HBox(5, startHour, new Label(":"), startMin);
         startTimeBox.setAlignment(Pos.CENTER_LEFT);
 
         DatePicker endDatePicker = new DatePicker(LocalDate.now());
-        Spinner<Integer> endHour = new Spinner<>(0, 23, 10);
-        Spinner<Integer> endMin = new Spinner<>(0, 59, 0);
-        endHour.setPrefWidth(60);
-        endMin.setPrefWidth(60);
+        Spinner<Integer> endHour = createTimeSpinner.apply(23);
+        endHour.getValueFactory().setValue(nowTime.plusHours(1).getHour()); // Default 1 hour later
+        
+        Spinner<Integer> endMin = createTimeSpinner.apply(59);
+        endMin.getValueFactory().setValue(nowTime.getMinute());
+        
         HBox endTimeBox = new HBox(5, endHour, new Label(":"), endMin);
         endTimeBox.setAlignment(Pos.CENTER_LEFT);
+
+        // Populate if edit mode
+        if (isEditMode) {
+             titleField.setText(eventToEdit.getTitle());
+             descField.setText(eventToEdit.getDescription());
+             startDatePicker.setValue(eventToEdit.getStartDateTime().toLocalDate());
+             startHour.getValueFactory().setValue(eventToEdit.getStartDateTime().getHour());
+             startMin.getValueFactory().setValue(eventToEdit.getStartDateTime().getMinute());
+             //endDatePicker.setValue(eventToEdit.getEndDateTime().toLocalDate());
+             endHour.getValueFactory().setValue(eventToEdit.getEndDateTime().getHour());
+             endMin.getValueFactory().setValue(eventToEdit.getEndDateTime().getMinute());
+             locationField.setText(eventToEdit.getLocation());
+             categoryBox.setValue(eventToEdit.getCategory());
+             attendeesField.setText(eventToEdit.getAttendees());
+             
+             // Load existing reminder
+             ReminderManager reminderManager = new ReminderManager();
+             int existingMinutes = reminderManager.getReminderMinutes(eventToEdit.getEventId());
+             if (existingMinutes == 15) reminderBox.setValue("15 minutes before");
+             else if (existingMinutes == 30) reminderBox.setValue("30 minutes before");
+             else if (existingMinutes == 60) reminderBox.setValue("1 hour before");
+             else if (existingMinutes == 1440) reminderBox.setValue("1 day before");
+             else if (existingMinutes > 0) {
+                 reminderBox.setValue("Custom");
+                 customReminderBox.setVisible(true);
+                 customReminderBox.setManaged(true);
+                 if (existingMinutes % 1440 == 0) {
+                     int val = existingMinutes / 1440;
+                     customValSpinner.getValueFactory().setValue(val);
+                     customUnitBox.setValue(val > 1 ? "days before" : "day before");
+                 } else if (existingMinutes % 60 == 0) {
+                     int val = existingMinutes / 60;
+                     customValSpinner.getValueFactory().setValue(val);
+                     customUnitBox.setValue(val > 1 ? "hours before" : "hour before");
+                 } else {
+                     customValSpinner.getValueFactory().setValue(existingMinutes);
+                     customUnitBox.setValue(existingMinutes > 1 ? "minutes before" : "minute before");
+                 }
+             }
+             else reminderBox.setValue("None");
+        }
 
         //recurrent info
         ComboBox<String> repeatUnit = new ComboBox<>();
@@ -126,9 +236,9 @@ public class EventDialog {
         DatePicker recEndDatePicker = new DatePicker();
 
         // since end date always on the same day as start, picker is diabled
-        endDatePicker.setDisable(true);
-        endDatePicker.valueProperty().bind(startDatePicker.valueProperty());
-        endDatePicker.setStyle("-fx-opacity: 0.7;"); // Make it look "read-only" but readable
+        //endDatePicker.setDisable(true);
+        //endDatePicker.valueProperty().bind(startDatePicker.valueProperty());
+        //endDatePicker.setStyle("-fx-opacity: 0.7;"); // Make it look "read-only" but readable
 
         // pre-fill with existing event details
         if (isEditMode){
@@ -193,6 +303,7 @@ public class EventDialog {
         });
 
         // refresh end date when start date changes
+        /*
         startDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal != null){
                 if (endDatePicker.getValue().isBefore(newVal)){
@@ -200,6 +311,15 @@ public class EventDialog {
                 }
 
                 recEndDatePicker.setDayCellFactory(null); // clear and reset factory
+                recEndDatePicker.setDayCellFactory(recEndDatePicker.getDayCellFactory());
+            }
+        });
+        */
+        
+        // Refresh recurrence end picker when start date changes
+        startDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null) {
+                recEndDatePicker.setDayCellFactory(null);
                 recEndDatePicker.setDayCellFactory(recEndDatePicker.getDayCellFactory());
             }
         });
@@ -223,13 +343,13 @@ public class EventDialog {
         grid.add(new Label("Description:"), 0, 1);
         grid.add(descField, 1, 1, 2, 1);
 
-        grid.add(new Label("Start:"), 0, 2);
-        grid.add(startDatePicker, 1, 2);
-        grid.add(startTimeBox, 2, 2);
+        grid.add(new Label("Date:"), 0, 2);
+        grid.add(startDatePicker, 1, 2, 2, 1); 
 
-        grid.add(new Label("End:"), 0, 3);
-        grid.add(endDatePicker, 1, 3);
-        grid.add(endTimeBox, 2, 3);
+        grid.add(new Label("Time:"), 0, 3);
+        HBox timeRow = new HBox(10, startTimeBox, new Label("-"), endTimeBox);
+        timeRow.setAlignment(Pos.CENTER_LEFT);
+        grid.add(timeRow, 1, 3, 2, 1);
 
         grid.add(new Label("Category"), 0, 4);
         grid.add(categoryBox, 1, 4);
@@ -238,18 +358,87 @@ public class EventDialog {
         grid.add(new Label("Attendees"), 0, 6);
         grid.add(attendeesField, 1, 6);
 
-        grid.add(new Label("Repeat Every:"), 0, 7);
-        HBox freqBox = new HBox(5, repeatFreq, repeatUnit);
-        grid.add(freqBox, 1, 7, 2, 1);
+        grid.add(new Label("Reminder:"), 0, 7);
+        HBox reminderContainer = new HBox(10, reminderBox, customReminderBox);
+        reminderContainer.setAlignment(Pos.CENTER_LEFT);
+        grid.add(reminderContainer, 1, 7, 2, 1);
 
-        grid.add(new Separator(), 0, 8, 3, 1);
-        grid.add(new Label("Stop Condition:"), 0, 9);
-        grid.add(timesRadio, 1, 9);
-        grid.add(repeatTimes, 2, 9);
-        grid.add(dateRadio, 1, 10);
-        grid.add(recEndDatePicker, 2, 10);
+        grid.add(new Label("Repeat Every:"), 0, 8);
+        HBox freqBox = new HBox(5, repeatFreq, repeatUnit);
+        grid.add(freqBox, 1, 8, 2, 1);
+
+        grid.add(new Separator(), 0, 9, 3, 1);
+        grid.add(new Label("Stop Condition:"), 0, 10);
+        grid.add(timesRadio, 1, 10);
+        grid.add(repeatTimes, 2, 10);
+        grid.add(dateRadio, 1, 11);
+        grid.add(recEndDatePicker, 2, 11);
 
         dialog.getDialogPane().setContent(grid);
+        
+        // Validation: Disable submit button if title is empty
+        javafx.scene.Node saveButton = dialog.getDialogPane().lookupButton(saveButtonType);
+        saveButton.setDisable(true); // Initial state
+        if (isEditMode && eventToEdit.getTitle() != null && !eventToEdit.getTitle().trim().isEmpty()) {
+            saveButton.setDisable(false);
+        }
+        
+        titleField.textProperty().addListener((observable, oldValue, newValue) -> {
+            saveButton.setDisable(newValue.trim().isEmpty());
+        });
+
+        // --- Conflict Detection & Validation with EventFilter ---
+        Button btSave = (Button) dialog.getDialogPane().lookupButton(saveButtonType);
+        btSave.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            // 1. Validations
+            LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(),
+                    LocalTime.of(startHour.getValue(), startMin.getValue()));
+            LocalDateTime end = LocalDateTime.of(startDatePicker.getValue(),
+                    LocalTime.of(endHour.getValue(), endMin.getValue()));
+            
+            if (end.isBefore(start)) {
+                 // Assume if end time is before start time, it means cross-midnight (next day) ??
+                 // BUT previous logic said "End time cannot be before start time".
+                 // Let's stick to simple logic or auto-fix?
+                 // User wants validation usually.
+                 // Wait, if I change DatePicker to be shared, I MUST assume same day.
+                 // So if end < start, it IS an error (or user meant next day but can't specify date).
+                 // For now, simple error.
+                Alert alert = new Alert(Alert.AlertType.ERROR, "End time cannot be before start time on the same day.");
+                alert.show();
+                event.consume(); // Prevent dialog close
+                return;
+            }
+
+            // 2. Conflict Check
+            int id = isEditMode ? eventToEdit.getEventId() : -1; // -1 for new
+            String tempTitle = titleField.getText(); // just placeholders for check
+            Event candidate = new Event(id, tempTitle, "", start, end, "", "", "");
+            
+            // Reconstruct recurrence rule for checking
+            RecurrenceRule candidateRule = null;
+            if (!repeatUnit.getValue().equalsIgnoreCase("Do not repeat")) {
+                char unit = switch (repeatUnit.getValue()) {
+                    case "Daily" -> 'd';
+                    case "Weekly" -> 'w';
+                    case "Monthly" -> 'm';
+                    case "Annually" -> 'y';
+                    default -> 'd';
+                };
+                String interval = repeatFreq.getText().trim() + unit;
+                int times = timesRadio.isSelected() ? Integer.parseInt(repeatTimes.getText()) : 0;
+                LocalDateTime recEndDate = dateRadio.isSelected() ? recEndDatePicker.getValue().atTime(23, 59) : null;
+                candidateRule = new RecurrenceRule(id, interval, times, recEndDate);
+            }
+            
+            ConflictDetector detector = new ConflictDetector(fileManager, recurrenceManager);
+            if (detector.check(candidate, candidateRule)) {
+                Alert alert = new Alert(Alert.AlertType.WARNING, "This event conflicts with an existing event!");
+                alert.setTitle("Conflict Detected");
+                alert.show();
+                event.consume(); // Prevent dialog close
+            }
+        });
 
         // Convert the result
         dialog.setResultConverter(dialogButton -> {
@@ -260,7 +449,7 @@ public class EventDialog {
 
                     LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(),
                             LocalTime.of(startHour.getValue(), startMin.getValue()));
-                    LocalDateTime end = LocalDateTime.of(endDatePicker.getValue(),
+                    LocalDateTime end = LocalDateTime.of(startDatePicker.getValue(),
                             LocalTime.of(endHour.getValue(), endMin.getValue()));
 
                     int ID = isEditMode ? eventToEdit.getEventId() : fileManager.getNextAvailableEventId();
@@ -285,6 +474,41 @@ public class EventDialog {
                     System.out.println("Saving " + allEvent.size() + " events...");
                     fileManager.saveEvents(allEvent);
                     System.out.println("Event Created and Saved: " + newEvent.getTitle());
+
+                    // SAVE REMINDER
+                    ReminderManager reminderManager = new ReminderManager();
+                    String reminderSelection = reminderBox.getValue();
+                    int minutes = 0;
+                    if (reminderSelection != null) {
+                        try {
+                            if ("Custom".equals(reminderSelection)) {
+                                int val = customValSpinner.getValue();
+                                String unit = customUnitBox.getValue();
+                                if (unit.startsWith("hour")) {
+                                    minutes = val * 60;
+                                } else if (unit.startsWith("day")) {
+                                    minutes = val * 1440; // 24 * 60
+                                } else {
+                                    minutes = val;
+                                }
+                            } else {
+                                switch (reminderSelection) {
+                                    case "15 minutes before" -> minutes = 15;
+                                    case "30 minutes before" -> minutes = 30;
+                                    case "1 hour before" -> minutes = 60;
+                                    case "1 day before" -> minutes = 1440;
+                                }
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Invalid custom reminder number.");
+                        }
+                    }
+                    if (minutes > 0) {
+                        reminderManager.saveReminder(newEvent.getEventId(), minutes);
+                    } else {
+                        // Ensure if they switched back to "None", we delete old reminder
+                        reminderManager.deleteReminder(newEvent.getEventId());
+                    }
 
                     // if recur
                     if (!repeatUnit.getValue().equalsIgnoreCase("Do not repeat")) {
@@ -344,6 +568,10 @@ public class EventDialog {
                     rules.remove(event.getEventId());
                     fileManager.saveRecurrenceRule(new ArrayList<>(rules.values()));
                 }
+                
+                // Delete reminder
+                new ReminderManager().deleteReminder(event.getEventId());
+                
                 onSaveCallback.run();
             } catch (Exception e) {
                 System.err.println("Delete error: " + e.getMessage());
