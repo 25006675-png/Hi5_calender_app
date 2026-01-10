@@ -36,10 +36,12 @@ import java.util.Optional;
  */
 public class EventDialog {
     private final FileManager fileManager;
+    private final RecurrenceManager recurrenceManager;
     private final Runnable onSaveCallback;
 
-    public EventDialog(FileManager fileManager, Runnable onSaveCallback){
+    public EventDialog(FileManager fileManager, RecurrenceManager recurrenceManager, Runnable onSaveCallback){
         this.fileManager = fileManager;
+        this.recurrenceManager = recurrenceManager;
         this.onSaveCallback = onSaveCallback;
     }
 
@@ -180,7 +182,7 @@ public class EventDialog {
              startDatePicker.setValue(eventToEdit.getStartDateTime().toLocalDate());
              startHour.getValueFactory().setValue(eventToEdit.getStartDateTime().getHour());
              startMin.getValueFactory().setValue(eventToEdit.getStartDateTime().getMinute());
-             endDatePicker.setValue(eventToEdit.getEndDateTime().toLocalDate());
+             //endDatePicker.setValue(eventToEdit.getEndDateTime().toLocalDate());
              endHour.getValueFactory().setValue(eventToEdit.getEndDateTime().getHour());
              endMin.getValueFactory().setValue(eventToEdit.getEndDateTime().getMinute());
              locationField.setText(eventToEdit.getLocation());
@@ -236,9 +238,9 @@ public class EventDialog {
         DatePicker recEndDatePicker = new DatePicker();
 
         // since end date always on the same day as start, picker is diabled
-        endDatePicker.setDisable(true);
-        endDatePicker.valueProperty().bind(startDatePicker.valueProperty());
-        endDatePicker.setStyle("-fx-opacity: 0.7;"); // Make it look "read-only" but readable
+        //endDatePicker.setDisable(true);
+        //endDatePicker.valueProperty().bind(startDatePicker.valueProperty());
+        //endDatePicker.setStyle("-fx-opacity: 0.7;"); // Make it look "read-only" but readable
 
         // pre-fill with existing event details
         if (isEditMode){
@@ -303,6 +305,7 @@ public class EventDialog {
         });
 
         // refresh end date when start date changes
+        /*
         startDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal != null){
                 if (endDatePicker.getValue().isBefore(newVal)){
@@ -310,6 +313,15 @@ public class EventDialog {
                 }
 
                 recEndDatePicker.setDayCellFactory(null); // clear and reset factory
+                recEndDatePicker.setDayCellFactory(recEndDatePicker.getDayCellFactory());
+            }
+        });
+        */
+        
+        // Refresh recurrence end picker when start date changes
+        startDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null) {
+                recEndDatePicker.setDayCellFactory(null);
                 recEndDatePicker.setDayCellFactory(recEndDatePicker.getDayCellFactory());
             }
         });
@@ -333,13 +345,13 @@ public class EventDialog {
         grid.add(new Label("Description:"), 0, 1);
         grid.add(descField, 1, 1, 2, 1);
 
-        grid.add(new Label("Start:"), 0, 2);
-        grid.add(startDatePicker, 1, 2);
-        grid.add(startTimeBox, 2, 2);
+        grid.add(new Label("Date:"), 0, 2);
+        grid.add(startDatePicker, 1, 2, 2, 1); 
 
-        grid.add(new Label("End:"), 0, 3);
-        grid.add(endDatePicker, 1, 3);
-        grid.add(endTimeBox, 2, 3);
+        grid.add(new Label("Time:"), 0, 3);
+        HBox timeRow = new HBox(10, startTimeBox, new Label("-"), endTimeBox);
+        timeRow.setAlignment(Pos.CENTER_LEFT);
+        grid.add(timeRow, 1, 3, 2, 1);
 
         grid.add(new Label("Category"), 0, 4);
         grid.add(categoryBox, 1, 4);
@@ -377,6 +389,59 @@ public class EventDialog {
             saveButton.setDisable(newValue.trim().isEmpty());
         });
 
+        // --- Conflict Detection & Validation with EventFilter ---
+        Button btSave = (Button) dialog.getDialogPane().lookupButton(saveButtonType);
+        btSave.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            // 1. Validations
+            LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(),
+                    LocalTime.of(startHour.getValue(), startMin.getValue()));
+            LocalDateTime end = LocalDateTime.of(startDatePicker.getValue(),
+                    LocalTime.of(endHour.getValue(), endMin.getValue()));
+            
+            if (end.isBefore(start)) {
+                 // Assume if end time is before start time, it means cross-midnight (next day) ??
+                 // BUT previous logic said "End time cannot be before start time".
+                 // Let's stick to simple logic or auto-fix?
+                 // User wants validation usually.
+                 // Wait, if I change DatePicker to be shared, I MUST assume same day.
+                 // So if end < start, it IS an error (or user meant next day but can't specify date).
+                 // For now, simple error.
+                Alert alert = new Alert(Alert.AlertType.ERROR, "End time cannot be before start time on the same day.");
+                alert.show();
+                event.consume(); // Prevent dialog close
+                return;
+            }
+
+            // 2. Conflict Check
+            int id = isEditMode ? eventToEdit.getEventId() : -1; // -1 for new
+            String tempTitle = titleField.getText(); // just placeholders for check
+            Event candidate = new Event(id, tempTitle, "", start, end, "", "", "");
+            
+            // Reconstruct recurrence rule for checking
+            RecurrenceRule candidateRule = null;
+            if (!repeatUnit.getValue().equalsIgnoreCase("Do not repeat")) {
+                char unit = switch (repeatUnit.getValue()) {
+                    case "Daily" -> 'd';
+                    case "Weekly" -> 'w';
+                    case "Monthly" -> 'm';
+                    case "Annually" -> 'y';
+                    default -> 'd';
+                };
+                String interval = repeatFreq.getText().trim() + unit;
+                int times = timesRadio.isSelected() ? Integer.parseInt(repeatTimes.getText()) : 0;
+                LocalDateTime recEndDate = dateRadio.isSelected() ? recEndDatePicker.getValue().atTime(23, 59) : null;
+                candidateRule = new RecurrenceRule(id, interval, times, recEndDate);
+            }
+            
+            ConflictDetector detector = new ConflictDetector(fileManager, recurrenceManager);
+            if (detector.check(candidate, candidateRule)) {
+                Alert alert = new Alert(Alert.AlertType.WARNING, "This event conflicts with an existing event!");
+                alert.setTitle("Conflict Detected");
+                alert.show();
+                event.consume(); // Prevent dialog close
+            }
+        });
+
         // Convert the result
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == saveButtonType) {
@@ -386,7 +451,7 @@ public class EventDialog {
 
                     LocalDateTime start = LocalDateTime.of(startDatePicker.getValue(),
                             LocalTime.of(startHour.getValue(), startMin.getValue()));
-                    LocalDateTime end = LocalDateTime.of(endDatePicker.getValue(),
+                    LocalDateTime end = LocalDateTime.of(startDatePicker.getValue(),
                             LocalTime.of(endHour.getValue(), endMin.getValue()));
 
                     int ID = isEditMode ? eventToEdit.getEventId() : fileManager.getNextAvailableEventId();

@@ -78,12 +78,30 @@ public class EventStatistic {
 
         dateDisplayLabel = new Label();
         dateDisplayLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold; -fx-min-width: 150px; -fx-alignment: center;");
+        
+        // Quick Jump Date Picker
+        DatePicker quickJumpPicker = new DatePicker();
+        quickJumpPicker.setPrefWidth(25);
+        // Style it to look like a small icon button or minimal field
+        quickJumpPicker.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-pref-width: 30px;");
+        quickJumpPicker.getEditor().setVisible(false);
+        quickJumpPicker.getEditor().setManaged(false);
+        
+        quickJumpPicker.setOnAction(e -> {
+            LocalDate selected = quickJumpPicker.getValue();
+            if (selected != null) {
+                selectedDate = selected;
+                // Determine logic similar to navigateDate but jumping
+                updateDateLabel();
+                refreshData();
+            }
+        });
 
         Button nextBtn = new Button(">");
         nextBtn.setStyle("-fx-background-radius: 15; -fx-min-width: 30;");
         nextBtn.setOnAction(e -> navigateDate(1));
 
-        HBox navigator = new HBox(5, prevBtn, dateDisplayLabel, nextBtn);
+        HBox navigator = new HBox(5, prevBtn, dateDisplayLabel, quickJumpPicker, nextBtn);
         navigator.setAlignment(Pos.CENTER);
 
         // Center-Right: Scope Switcher
@@ -237,7 +255,7 @@ public class EventStatistic {
         Label l1 = new Label("");
         Label l2 = new Label("Category"); l2.setStyle("-fx-font-size: 12px; -fx-text-fill: #888;");
         Label lTrend = new Label("Trend"); lTrend.setStyle("-fx-font-size: 12px; -fx-text-fill: #888;");
-        Label l3 = new Label("No. of Events"); l3.setStyle("-fx-font-size: 12px; -fx-text-fill: #888;");
+        Label l3 = new Label("Events"); l3.setStyle("-fx-font-size: 12px; -fx-text-fill: #888;");
         Label l4 = new Label("Total Time"); l4.setStyle("-fx-font-size: 12px; -fx-text-fill: #888;");
         
         listHeader.addRow(0, l0, l1, l2, lTrend, l3, l4);
@@ -302,10 +320,11 @@ public class EventStatistic {
         switch (currentScope) {
             case "Week" -> {
                 // Calculate week range
-                LocalDate startOfWeek = selectedDate.with(WeekFields.of(Locale.ENGLISH).dayOfWeek(), 1);
+                LocalDate startOfWeek = selectedDate.with(WeekFields.of(Locale.US).dayOfWeek(), 1);
                 LocalDate endOfWeek = startOfWeek.plusDays(6);
-                int weekNum = selectedDate.get(WeekFields.of(Locale.ENGLISH).weekOfWeekBasedYear());
-                text = "Week " + weekNum + " (" + startOfWeek.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)) + " - " + endOfWeek.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)) + ")";
+                int weekNum = selectedDate.get(WeekFields.of(Locale.US).weekOfWeekBasedYear());
+                int year = selectedDate.get(WeekFields.of(Locale.US).weekBasedYear());
+                text = "Week " + weekNum + ", " + year + " (" + startOfWeek.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)) + " - " + endOfWeek.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)) + ")";
             }
             case "Month" -> {
                 text = selectedDate.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH));
@@ -323,7 +342,7 @@ public class EventStatistic {
         LocalDateTime prevStartDateTime, prevEndDateTime;
         
         if (currentScope.equals("Week")) {
-            LocalDate startOfWeek = selectedDate.with(WeekFields.of(Locale.getDefault()).dayOfWeek(), 1);
+            LocalDate startOfWeek = selectedDate.with(WeekFields.of(Locale.US).dayOfWeek(), 1);
             startDateTime = startOfWeek.atStartOfDay();
             endDateTime = startOfWeek.plusDays(7).atStartOfDay();
             
@@ -444,6 +463,9 @@ public class EventStatistic {
         for (Map.Entry<String, Long> entry : topCategories) {
             String cat = entry.getKey();
             Long minutes = entry.getValue();
+            
+            if (minutes == 0) continue;
+
             Long count = categoryCount.getOrDefault(cat, 0L);
             
             GridPane row = new GridPane();
@@ -497,8 +519,8 @@ public class EventStatistic {
                 }
             } else if (minutes > 0) {
                  // New entry (no prev data) or prev data was 0
-                 trendText = "-";
-                 trendStyle = "-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #95a5a6;"; // Grey
+                 trendText = "NEW";
+                 trendStyle = "-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 10; -fx-padding: 1 6 1 6; -fx-font-size: 10px; -fx-font-weight: bold;"; 
             }
 
             Label trendLbl = new Label(trendText);
@@ -518,14 +540,19 @@ public class EventStatistic {
             breakdownList.getChildren().add(row);
         }
 
+        if (rank == 1) {
+             Label noActivityLbl = new Label("No activity recorded for this period yet.");
+             noActivityLbl.setStyle("-fx-text-fill: #7f8c8d; -fx-font-size: 14px; -fx-padding: 20 0 0 0;");
+             breakdownList.getChildren().add(noActivityLbl);
+        }
+
         // 6. Update Bar Chart
         // Clear all
         hourlyBarChart.getData().clear();
         XYChart.Series<String, Number> series = new XYChart.Series<>();
         
-        // Colors for each bar (cycling)
-        String[] barColors = {"#e74c3c", "#3498db", "#9b59b6", "#2ecc71", "#f1c40f", "#e67e22", "#1abc9c"};
-        int barColorIndex = 0;
+        // Single Brand Color for "Total Activity" to avoid confusion
+        final String brandBlue = "#3498db"; 
 
         if (currentScope.equals("Week")) {
             // X-Axis: Days of Week (Mon-Sun)
@@ -545,11 +572,10 @@ public class EventStatistic {
                  XYChart.Data<String, Number> data = new XYChart.Data<>(d.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH), m/60.0);
                  series.getData().add(data);
                  
-                 // Apply color after node is created
-                 final String color = barColors[(i-1) % barColors.length];
+                 // Apply single brand color
                 data.nodeProperty().addListener((obs, oldNode, newNode) -> {
                     if (newNode != null) {
-                        newNode.setStyle("-fx-bar-fill: " + color + ";");
+                        newNode.setStyle("-fx-bar-fill: " + brandBlue + ";");
                     }
                 });
              }
@@ -568,10 +594,9 @@ public class EventStatistic {
                  XYChart.Data<String, Number> data = new XYChart.Data<>(String.valueOf(i), m/60.0);
                  series.getData().add(data);
                  
-                  final String color = barColors[(i-1) % barColors.length];
                   data.nodeProperty().addListener((obs, oldNode, newNode) -> {
                     if (newNode != null) {
-                        newNode.setStyle("-fx-bar-fill: " + color + ";");
+                        newNode.setStyle("-fx-bar-fill: " + brandBlue + ";");
                     }
                 });
              }
@@ -584,16 +609,14 @@ public class EventStatistic {
                  long dur = java.time.Duration.between(e.getStartDateTime(), e.getEndDateTime()).toMinutes();
                  monthSums.merge(mo, dur, Long::sum);
             }
-            int monthIdx = 0;
              for (java.time.Month mo : java.time.Month.values()) {
                  long m = monthSums.getOrDefault(mo, 0L);
                  XYChart.Data<String, Number> data = new XYChart.Data<>(mo.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH), m/60.0);
                  series.getData().add(data);
                  
-                  final String color = barColors[monthIdx++ % barColors.length];
                   data.nodeProperty().addListener((obs, oldNode, newNode) -> {
                     if (newNode != null) {
-                        newNode.setStyle("-fx-bar-fill: " + color + ";");
+                        newNode.setStyle("-fx-bar-fill: " + brandBlue + ";");
                     }
                 });
              }

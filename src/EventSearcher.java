@@ -26,8 +26,8 @@ public class EventSearcher{
                 results.addAll(recurrenceManager.generateOccurrences(base, rules.get(eventID), start, end));
 
             } else{
-                // baseEvents with no recurrence
-                if ((! base.getStartDateTime().isBefore(start)) && (! base.getEndDateTime().isAfter(end))){
+                // baseEvents with no recurrence - CHECK OVERLAP instead of containment
+                if (base.getStartDateTime().isBefore(end) && base.getEndDateTime().isAfter(start)) {
                     results.add(base);
                 }
             }

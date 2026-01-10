@@ -266,6 +266,33 @@ public class CalendarGUI extends Application {
         nextBtn.setStyle("-fx-background-radius: 5px;");
         nextBtn.setOnAction(e -> nextMonth());
         
+        Button printBtn = new Button("🖨");
+        printBtn.setStyle("-fx-background-radius: 5px; -fx-font-size: 13px; -fx-padding: 4 8 4 8;");
+        printBtn.setTooltip(new Tooltip("Print view to console"));
+        printBtn.setOnAction(e -> {
+            String view = viewSwitcher.getValue();
+            if (view.contains("Calendar") && view.contains("Month")) {
+                CalendarPrinter.printMonthCalendar(visibleEvents, currentYearMonth);
+            } else if (view.contains("Calendar") && view.contains("Week")) {
+                LocalDate startOfWeek = currentDate.minusDays(currentDate.getDayOfWeek().getValue() % 7);
+                CalendarPrinter.printWeekCalendar(visibleEvents, startOfWeek);
+            } else {
+                LocalDate start, end;
+                 if (view.contains("Week")) {
+                     LocalDate startOfWeek = currentDate.minusDays(currentDate.getDayOfWeek().getValue() % 7);
+                     start = startOfWeek;
+                     end = startOfWeek.plusDays(6);
+                } else if (view.contains("Month")) {
+                     start = currentYearMonth.atDay(1);
+                     end = currentYearMonth.atEndOfMonth();
+                } else { // Day
+                     start = currentDate;
+                     end = currentDate;
+                }
+                CalendarPrinter.printList(visibleEvents, start, end, view);
+            }
+        });
+        
         // View Switcher
         viewSwitcher = new ComboBox<>();
         viewSwitcher.getItems().addAll(
@@ -289,6 +316,26 @@ public class CalendarGUI extends Application {
         titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;");
         updateTitleLabel();
 
+        // Universal Date Picker for Quick Jumping
+        DatePicker quickJumpPicker = new DatePicker();
+        quickJumpPicker.setPrefWidth(25); 
+        // Style it to look like a small icon button or minimal field
+        quickJumpPicker.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-pref-width: 30px;");
+        // Hack: Make the text field inside invisible so only the calendar icon is main interaction point, or just keep it small
+        quickJumpPicker.getEditor().setVisible(false);
+        quickJumpPicker.getEditor().setManaged(false);
+        
+        quickJumpPicker.setOnAction(e -> {
+            LocalDate selected = quickJumpPicker.getValue();
+            if (selected != null) {
+                currentDate = selected;
+                currentYearMonth = YearMonth.from(selected);
+                updateTitleLabel();
+                drawCalendar();
+                // Reset to null so it can be picked again if needed? Or keep consistent.
+            }
+        });
+
         // Search Bar (Logic removed as requested, just UI)
         searchBar = new TextField();
         searchBar.setPromptText("Search keywords...");
@@ -308,12 +355,12 @@ public class CalendarGUI extends Application {
         Button createEventBtn = new Button("+ Create Event");
         createEventBtn.getStyleClass().add("create-event-btn");
         createEventBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5px; -fx-font-weight: bold;");
-        EventDialog creatingDialog = new EventDialog(fileManager, this::drawCalendar);
+        EventDialog creatingDialog = new EventDialog(fileManager, recurrenceManager, this::drawCalendar);
 
         createEventBtn.setOnAction(e -> creatingDialog.create());
 
         // Layout assembly
-        HBox leftGrp = new HBox(5, prevBtn, titleLabel, nextBtn, viewSwitcher);
+        HBox leftGrp = new HBox(5, prevBtn, titleLabel, quickJumpPicker, nextBtn, printBtn, viewSwitcher);
         leftGrp.setAlignment(Pos.CENTER_LEFT);
         
         homeToolbar.getChildren().addAll(
@@ -327,37 +374,72 @@ public class CalendarGUI extends Application {
     }
 
     private void drawSettingsView() {
-        VBox settingsContainer = new VBox(20);
-        settingsContainer.setPadding(new Insets(20));
-        settingsContainer.setAlignment(Pos.TOP_LEFT);
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(20));
+        content.setAlignment(Pos.TOP_LEFT);
         
-        // Toolbar for settings
-        HBox toolbar = new HBox();
-        Label title = new Label("SETTINGS");
-        title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
-        toolbar.getChildren().add(title);
+        // Header
+        Label header = new Label("Data Management");
+        header.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
+
+        // Data Management Content Box
+        VBox dataBox = new VBox(15);
+        dataBox.setStyle("-fx-background-color: white; -fx-padding: 20; -fx-background-radius: 8; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.05), 5, 0, 0, 1);");
         
-        // Content
-        Label content = new Label("Application preferences and account configurations will appear here.");
-        content.setStyle("-fx-font-size: 14px; -fx-text-fill: #666;");
+        // Backup & Restore Row
+        HBox backupRow = new HBox(20);
+        backupRow.setAlignment(Pos.CENTER_LEFT);
+        Label backupLbl = new Label("Backup & Restore:");
+        backupLbl.setMinWidth(140);
+        backupLbl.setStyle("-fx-font-weight: bold; -fx-text-fill: #34495e; -fx-font-size: 14px;");
         
-        settingsContainer.getChildren().addAll(toolbar, new Separator(), content);
+        Button exportBtn = new Button("Export Data");
+        exportBtn.setStyle("-fx-base: #3498db; -fx-text-fill: white; -fx-font-weight: bold;");
+        exportBtn.setOnAction(e -> handleBackup());
         
-        root.setCenter(settingsContainer);
+        Button importBtn = new Button("Import Data");
+        importBtn.setStyle("-fx-base: #e67e22; -fx-text-fill: white; -fx-font-weight: bold;");
+        importBtn.setOnAction(e -> handleRestore());
+        
+        backupRow.getChildren().addAll(backupLbl, exportBtn, importBtn);
+        
+        // External Files Row
+        HBox mergeRow = new HBox(20);
+        mergeRow.setAlignment(Pos.CENTER_LEFT);
+        Label mergeLbl = new Label("External Files:");
+        mergeLbl.setMinWidth(140);
+        mergeLbl.setStyle("-fx-font-weight: bold; -fx-text-fill: #34495e; -fx-font-size: 14px;");
+        
+        Button mergeBtn = new Button("Merge CSV");
+        mergeBtn.setStyle("-fx-base: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        mergeBtn.setOnAction(e -> handleMerge());
+        
+        mergeRow.getChildren().addAll(mergeLbl, mergeBtn);
+        
+        dataBox.getChildren().addAll(backupRow, new Separator(), mergeRow);
+        
+        content.getChildren().addAll(header, dataBox);
+        
+        root.setCenter(content);
     }
     
     private VBox createSidebar() {
-        VBox sidebar = new VBox();
+        VBox sidebar = new VBox(5); // Small spacing
         sidebar.getStyleClass().add("sidebar");
         sidebar.setPrefWidth(220);
         sidebar.setStyle("-fx-background-color: #2c3e50;"); 
+        
+        // Header Padding
+        Region topPad = new Region();
+        topPad.setMinHeight(20);
+        sidebar.getChildren().add(topPad);
 
         // Helper to create styled sidebar buttons
         java.util.function.Function<String, Button> createBtn = (text) -> {
             Button btn = new Button(text);
             btn.setMaxWidth(Double.MAX_VALUE);
             btn.setAlignment(Pos.CENTER_LEFT);
-            btn.setPadding(new Insets(10, 20, 10, 20));
+            btn.setPadding(new Insets(12, 20, 12, 20)); // Taller buttons
             String baseStyle = "-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-cursor: hand;";
             btn.setStyle(baseStyle);
             return btn;
@@ -365,20 +447,23 @@ public class CalendarGUI extends Application {
         
         List<Button> navButtons = new ArrayList<>();
 
-        Button homeBtn = createBtn.apply("Home");
-        Button analysisBtn = createBtn.apply("Analysis");
-        Button remindersBtn = createBtn.apply("Reminders");
+        Button homeBtn = createBtn.apply("🏠  Home");
+        Button analysisBtn = createBtn.apply("📊  Analysis");
+        Button remindersBtn = createBtn.apply("🔔  Reminders");
+        Button settingsBtn = createBtn.apply("⚙  Settings");
 
         navButtons.add(homeBtn);
         navButtons.add(analysisBtn);
         navButtons.add(remindersBtn);
+        navButtons.add(settingsBtn);
 
         javafx.event.EventHandler<javafx.event.ActionEvent> setAsActive = e -> {
             Button source = (Button) e.getSource();
             for(Button b : navButtons) {
                 b.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-cursor: hand;");
             }
-            source.setStyle("-fx-background-color: #f1c40f; -fx-text-fill: #2c3e50; -fx-font-weight: bold; -fx-font-size: 14px;");
+            // Active Style
+            source.setStyle("-fx-background-color: #34495e; -fx-text-fill: #f1c40f; -fx-font-weight: bold; -fx-font-size: 14px; -fx-border-color: #f1c40f; -fx-border-width: 0 0 0 4;");
         };
 
         homeBtn.setOnAction(e -> {
@@ -396,34 +481,31 @@ public class CalendarGUI extends Application {
             drawNotificationView();
         });
 
-        // Other buttons
-        Button settingsBtn = new Button("Settings");
-        settingsBtn.setMaxWidth(Double.MAX_VALUE);
-        settingsBtn.setOnAction(e -> drawSettingsView());
+        settingsBtn.setOnAction(e -> {
+            setAsActive.handle(e);
+            drawSettingsView();
+        });
 
-        Button backupBtn = new Button("Export Backup");
-        backupBtn.setMaxWidth(Double.MAX_VALUE);
-        backupBtn.setOnAction(e -> handleBackup());
-        
-        Button restoreBtn = new Button("Import Restore");
-        restoreBtn.setMaxWidth(Double.MAX_VALUE);
-        restoreBtn.setOnAction(e -> handleRestore());
-
-        Button mergeBtn = new Button("Merge/Import CSV");
-        mergeBtn.setMaxWidth(Double.MAX_VALUE);
-        mergeBtn.setOnAction(e -> handleMerge());
-
-        Region spacer = new Region();
-        VBox.setVgrow(spacer, Priority.ALWAYS);
-
+        // Add all to sidebar
         sidebar.getChildren().addAll(
-            new Region() {{ setMinHeight(20); }},
-            homeBtn, analysisBtn, remindersBtn, 
-            new Separator() {{ setPadding(new Insets(10,0,10,0)); }}, 
-            backupBtn, restoreBtn, mergeBtn, 
-            spacer, 
+            homeBtn, 
+            analysisBtn, 
+            remindersBtn, 
             settingsBtn
         );
+        
+        // Flexible spacer at bottom
+        Region bottomSpacer = new Region();
+        VBox.setVgrow(bottomSpacer, Priority.ALWAYS);
+        sidebar.getChildren().add(bottomSpacer);
+        
+        // About / Version at bottom
+        Label version = new Label("v1.0.0");
+        version.setStyle("-fx-text-fill: #7f8c8d; -fx-font-size: 10px; -fx-padding: 10;");
+        version.setMaxWidth(Double.MAX_VALUE);
+        version.setAlignment(Pos.CENTER);
+        sidebar.getChildren().add(version);
+
         return sidebar;
     }
 
@@ -496,7 +578,13 @@ public class CalendarGUI extends Application {
         if (view.contains("Week")) {
             LocalDate startOfWeek = currentDate.minusDays(currentDate.getDayOfWeek().getValue() % 7);
             LocalDate endOfWeek = startOfWeek.plusDays(6);
-            titleLabel.setText(startOfWeek.toString() + " to " + endOfWeek.toString());
+            
+            int weekNum = currentDate.get(java.time.temporal.WeekFields.of(java.util.Locale.US).weekOfWeekBasedYear());
+            int year = currentDate.get(java.time.temporal.WeekFields.of(java.util.Locale.US).weekBasedYear());
+            
+            titleLabel.setText("Week " + weekNum + ", " + year + " (" + 
+                startOfWeek.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.ENGLISH)) + " - " + 
+                endOfWeek.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.ENGLISH)) + ")");
         } else if (view.contains("Day")) {
             titleLabel.setText(currentDate.toString());
         } else {
@@ -629,9 +717,111 @@ public class CalendarGUI extends Application {
         }
     }
 
+    private void configureListView() {
+        eventListView.setCellFactory(param -> new ListCell<String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    setStyle("-fx-background-color: transparent;");
+                } else {
+                    setText(null);
+                    
+                    if (item.startsWith("HEADER:")) {
+                        // Date Header
+                        String text = item.substring(7);
+                        boolean isToday = false;
+                        
+                        if (text.startsWith("TODAY|")) {
+                            isToday = true;
+                            text = text.substring(6);
+                        }
+                        
+                        Label lbl = new Label(text);
+                        String style = "-fx-font-weight: bold; -fx-font-size: 14px; -fx-padding: 5 0 2 0;";
+                        
+                        if (isToday) {
+                            style += " -fx-text-fill: #3498db; -fx-background-color: #eaf2f8; -fx-background-radius: 5; -fx-padding: 5 10 5 10;";
+                            lbl.setText("Today, " + text);
+                        } else {
+                            style += " -fx-text-fill: #2c3e50;";
+                        }
+                        
+                        lbl.setStyle(style);
+                        VBox box = new VBox(lbl, new Separator());
+                        box.setPadding(new Insets(10, 5, 0, 5));
+                        setGraphic(box);
+                        setStyle("-fx-background-color: transparent;");
+                    } else if (item.startsWith("POINTER:")) {
+                        // Event Item
+                        // Format: POINTER:Time|Category|Title|Desc|ID
+                        String[] parts = item.substring(8).split("\\|");
+                        if (parts.length >= 4) {
+                             String time = parts[0];
+                             String cat = parts[1];
+                             String title = parts[2];
+                             String desc = parts[3];
+                             
+                             HBox row = new HBox(15);
+                             row.setAlignment(Pos.CENTER_LEFT);
+                             row.setPadding(new Insets(8, 10, 8, 10));
+                             row.setStyle("-fx-background-color: white; -fx-background-radius: 5px; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.1), 3, 0, 0, 1);");
+                             
+                             // Time Box
+                             VBox timeBox = new VBox();
+                             timeBox.setAlignment(Pos.CENTER);
+                             timeBox.setMinWidth(60);
+                             Label timeLbl = new Label(time);
+                             timeLbl.setStyle("-fx-font-weight: bold; -fx-text-fill: #34495e;");
+                             timeBox.getChildren().add(timeLbl);
+                             
+                             // Category Indicator
+                             String colorHex = "#bdc3c7";
+                            switch (cat) {
+                                case "Work" -> colorHex = "#e74c3c";
+                                case "Personal" -> colorHex = "#9b59b6";
+                                case "Study" -> colorHex = "#3498db";
+                                case "Holiday" -> colorHex = "#2ecc71";
+                                case "Other" -> colorHex = "#f1c40f";
+                            }
+                             Region indicator = new Region();
+                             indicator.setMinWidth(4);
+                             indicator.setMinHeight(25);
+                             indicator.setStyle("-fx-background-color: " + colorHex + "; -fx-background-radius: 2px;");
+
+                             // Content
+                             VBox content = new VBox(2);
+                             Label titleLbl = new Label(title);
+                             titleLbl.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
+                             Label descLbl = new Label(desc);
+                             descLbl.setStyle("-fx-text-fill: #7f8c8d; -fx-font-size: 11px;");
+                             content.getChildren().addAll(titleLbl, descLbl);
+                             
+                             row.getChildren().addAll(timeBox, indicator, content);
+                             setGraphic(row);
+                             setStyle("-fx-background-color: transparent; -fx-padding: 2 10 2 10;");
+                             
+                        } else {
+                            setText(item);
+                        }
+                    } else {
+                        // "No events" or spacers
+                        Label lbl = new Label(item);
+                        lbl.setStyle("-fx-text-fill: #95a5a6; -fx-padding: 5 15 5 15; -fx-font-style: italic;");
+                        setGraphic(lbl);
+                        setStyle("-fx-background-color: transparent;");
+                    }
+                }
+            }
+        });
+    }
+
     // Logic inspired by ViewCalendar.showListView
     private void drawListDayView() {
         eventListView.getItems().clear();
+        configureListView();
         // Set Center of Home Layout
         homeCenterLayout.getChildren().setAll(homeToolbar, eventListView);
         VBox.setVgrow(eventListView, Priority.ALWAYS);
@@ -641,6 +831,7 @@ public class CalendarGUI extends Application {
 
     private void drawListWeekView() {
         eventListView.getItems().clear();
+        configureListView();
         homeCenterLayout.getChildren().setAll(homeToolbar, eventListView);
         VBox.setVgrow(eventListView, Priority.ALWAYS);
 
@@ -652,6 +843,7 @@ public class CalendarGUI extends Application {
 
     private void drawListMonthView() {
         eventListView.getItems().clear();
+        configureListView();
         homeCenterLayout.getChildren().setAll(homeToolbar, eventListView);
         VBox.setVgrow(eventListView, Priority.ALWAYS);
 
@@ -663,54 +855,86 @@ public class CalendarGUI extends Application {
 
     private void addEventsForDateToList(LocalDate date) {
         boolean hasEvents = false;
-        // Header for the day
-        eventListView.getItems().add("=== " + date.toString() + " (" + date.getDayOfWeek() + ") ===");
+        
+        DateTimeFormatter headerFmt = DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH);
+        // Special format marker "HEADER:"
+        String headerPrefix = "HEADER:";
+        if (date.equals(LocalDate.now())) {
+            headerPrefix = "HEADER:TODAY|";
+        }
+        eventListView.getItems().add(headerPrefix + date.format(headerFmt));
         
         for (Event event : visibleEvents) {
             if (event.getStartDateTime().toLocalDate().equals(date)) {
-                String entry = String.format("   %s - %s: %s", 
-                    event.getStartDateTime().toLocalTime(), 
-                    event.getTitle(), 
-                    event.getDescription());
-                eventListView.getItems().add(entry);
+                // POINTER:Time|Category|Title|Desc|ID
+                String packed = String.format("POINTER:%s|%s|%s|%s|%s",
+                    event.getStartDateTime().toLocalTime().toString(),
+                    event.getCategory(),
+                    event.getTitle(),
+                    event.getDescription(),
+                    event.getEventId()
+                );
+                eventListView.getItems().add(packed);
                 hasEvents = true;
             }
         }
         
         if (!hasEvents) {
-            eventListView.getItems().add("   No events");
+            eventListView.getItems().add("No scheduled events");
         }
         eventListView.getItems().add(""); // Empty line for spacing
     }
 
     private VBox createDayCell(LocalDate date, boolean showDayNumber, boolean isCurrentMonth) {
         VBox cell = new VBox();
+        boolean isToday = date.equals(LocalDate.now());
+
         // style: dimmer background if not current month;
         String bgStyle;
-        if (isCurrentMonth) { bgStyle = "-fx-background-color: white;";}
-        else { bgStyle = "-fx-background-color: #f9f9f9;"; }
+        String borderStyle;
+        
+        if (isToday) {
+            // Highlight for today
+            bgStyle = "-fx-background-color: #f0f8ff;"; // Alice Blue
+            borderStyle = "-fx-border-color: #3498db; -fx-border-width: 2;";
+        } else if (isCurrentMonth) { 
+            bgStyle = "-fx-background-color: white;";
+            borderStyle = "-fx-border-color: #eeeeee;";
+        } else { 
+            bgStyle = "-fx-background-color: #f9f9f9;"; 
+            borderStyle = "-fx-border-color: #eeeeee;";
+        }
 
         cell.getStyleClass().add("calendar-cell");
-        cell.setStyle("-fx-border-color: #eeeeee; -fx-padding: 5;" + bgStyle);
+        cell.setStyle(borderStyle + " -fx-padding: 5;" + bgStyle);
         cell.setFillWidth(true);
 
         // click cell background to create event
         cell.setOnMouseClicked(e ->{
             // pass the date of this cell so dialog opens with date where the cell is clicked
             System.out.println("Creating event for date: " + date);
-            EventDialog creatingDialog = new EventDialog(fileManager, this::drawCalendar);
+            EventDialog creatingDialog = new EventDialog(fileManager, recurrenceManager, this::drawCalendar);
             creatingDialog.create(date);
         });
 
         if (showDayNumber) {
+            BorderPane header = new BorderPane();
+            
             Label dayNumber = new Label(String.valueOf(date.getDayOfMonth()));
-            dayNumber.setMaxWidth(Double.MAX_VALUE);
-            dayNumber.setAlignment(Pos.TOP_RIGHT);
-            if (!isCurrentMonth){
+            
+            if (isToday) {
+                Label todayLbl = new Label("Today");
+                todayLbl.setStyle("-fx-text-fill: #3498db; -fx-font-weight: bold; -fx-font-size: 12px;");
+                header.setLeft(todayLbl);
+                
+                dayNumber.setStyle("-fx-text-fill: #3498db; -fx-font-weight: bold;");
+            } else if (!isCurrentMonth){
                 dayNumber.setStyle("-fx-text-fill: #aaaaaa;");
                 //dimmer text for overflow days
             }
-            cell.getChildren().add(dayNumber);
+            
+            header.setRight(dayNumber);
+            cell.getChildren().add(header);
         }
 
         for (Event event : visibleEvents) {
@@ -759,7 +983,7 @@ public class CalendarGUI extends Application {
 
         Optional<ButtonType> result = alert.showAndWait();
         if(result.isPresent()){
-            EventDialog eventManager = new EventDialog(fileManager, this::drawCalendar);
+            EventDialog eventManager = new EventDialog(fileManager, recurrenceManager, this::drawCalendar);
             if (result.get() == deleteBtn){
                 eventManager.delete(event);
 
