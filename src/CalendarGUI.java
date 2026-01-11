@@ -393,7 +393,7 @@ public class CalendarGUI extends Application {
         exportBtn.setOnAction(e -> handleBackup());
         
         Button importBtn = new Button("Import Data");
-        importBtn.setStyle("-fx-background-color: #e8740d; -fx-text-fill: white; -fx-font-weight: bold;");
+        importBtn.setStyle("-fx-background-color: #ffaa5d; -fx-text-fill: white; -fx-font-weight: bold;");
         importBtn.setOnAction(e -> handleRestore());
         
         backupRow.getChildren().addAll(backupLbl, exportBtn, importBtn);
@@ -406,7 +406,7 @@ public class CalendarGUI extends Application {
         mergeLbl.setStyle("-fx-font-weight: bold; -fx-text-fill: #34495e; -fx-font-size: 14px;");
         
         Button mergeBtn = new Button("Merge CSV");
-        mergeBtn.setStyle("-fx-base: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        mergeBtn.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;");
         mergeBtn.setOnAction(e -> handleMerge());
         
         mergeRow.getChildren().addAll(mergeLbl, mergeBtn);
