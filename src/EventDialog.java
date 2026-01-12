@@ -5,11 +5,13 @@ import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 
+import java.io.File;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -546,38 +548,72 @@ public class EventDialog {
 
 
     // delete with confirmation popup
-    public void delete(Event event){
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
-                "Are you sure to delete '" + event.getTitle() + "'?",
-                ButtonType.YES, ButtonType.NO);
-        confirm.setTitle("Confirm delete");
-        confirm.setHeaderText(null);
+    public void delete(Event event) {
+        Map<Integer, RecurrenceRule> rules = fileManager.loadRecurrentRules();
+        boolean isRecurring = rules.containsKey(event.getEventId());
 
-        Optional<ButtonType> result = confirm.showAndWait();
-        /* Optional act as a container to prevent nullPointerException
-         * if contain any < ButtonType> , return true, else false
-        */
-        if (result.isPresent() && result.get() == ButtonType.YES){
-            try{
-                List<Event> allEvent = fileManager.loadEvents();
-                allEvent.removeIf(e -> e.getEventId() == event.getEventId());
-                fileManager.saveEvents(allEvent);
+        if (isRecurring) {
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+            confirm.setTitle("Delete recurring event");
+            confirm.setHeaderText("This is a repeating event.");
+            confirm.setContentText("Do you want to delete only this occurrence, or the entire series");
 
-                var rules = fileManager.loadRecurrentRules();
-                if (rules.containsKey(event.getEventId())){
-                    rules.remove(event.getEventId());
-                    fileManager.saveRecurrenceRule(new ArrayList<>(rules.values()));
+            ButtonType deleteOneBtn = new ButtonType("Delete this Occurrence");
+            ButtonType deleteAllBtn = new ButtonType("Delete entire series");
+            ButtonType cancelBtn = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+            confirm.getButtonTypes().setAll(deleteOneBtn, deleteAllBtn, cancelBtn);
+
+            Optional<ButtonType> result = confirm.showAndWait();
+            /* Optional act as a container to prevent nullPointerException
+             * if contain any < ButtonType> , return true, else false
+             */
+            if (result.isPresent()) {
+                if (result.get() == deleteAllBtn){
+                    performFullDelet(event);
+                } else if (result.get() == deleteOneBtn){
+                    ExceptionRule ex = new ExceptionRule(event.getEventId(), event.getStartDateTime(), "DELETE");
+                    List<ExceptionRule> exceptions = fileManager.loadExceptions();
+                    exceptions.add(ex);
+                    fileManager.saveExceptions(exceptions);
+
+                    //refresh UI
+                    onSaveCallback.run();
                 }
-                
-                // Delete reminder
-                new ReminderManager().deleteReminder(event.getEventId());
-                
-                onSaveCallback.run();
-            } catch (Exception e) {
-                System.err.println("Delete error: " + e.getMessage());
             }
 
+        } else{
+            // delete non-recurring events
+             performFullDelet(event);
         }
     }
+
+    public void performFullDelet(Event event){
+
+        try{
+            List<Event> allEvent = fileManager.loadEvents();
+            allEvent.removeIf(e -> e.getEventId() == event.getEventId());
+            fileManager.saveEvents(allEvent);
+
+            var rules = fileManager.loadRecurrentRules();
+            if (rules.containsKey(event.getEventId())){
+                rules.remove(event.getEventId());
+                fileManager.saveRecurrenceRule(new ArrayList<>(rules.values()));
+            }
+            // delete all exceptions since base events are deleted
+            List<ExceptionRule> exceptions = fileManager.loadExceptions();
+            exceptions.removeIf(ex -> ex.getEventId() == event.getEventId());
+            fileManager.saveExceptions(exceptions);
+
+            // Delete reminder
+            new ReminderManager().deleteReminder(event.getEventId());
+
+            onSaveCallback.run();
+        } catch (Exception e) {
+            System.err.println("Delete error: " + e.getMessage());
+        }
+
+    }
+
 
 }
