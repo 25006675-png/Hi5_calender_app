@@ -5,7 +5,8 @@ import java.time.temporal.ChronoUnit;
 
 
 public class RecurrenceManager{
-    public List<Event> generateOccurrences(Event base, RecurrenceRule rule, LocalDateTime searchStart, LocalDateTime searchEnd){
+    public List<Event> generateOccurrences(Event base, RecurrenceRule rule, LocalDateTime searchStart,
+                                           LocalDateTime searchEnd, List<ExceptionRule> exceptions){
         List<Event> occurrences = new ArrayList<>();
 
         if ((rule == null) || (rule.getRecurrentInterval() == null)){
@@ -53,9 +54,11 @@ public class RecurrenceManager{
                 break;
             }
 
-            LocalDateTime instanceEnd = current.plusMinutes(durationMinutes);
-
-            occurrences.add(new Event(base, current, instanceEnd));
+            // check for exceptions:
+            if (! isException(base.getEventId(), current, exceptions)) {
+                LocalDateTime instanceEnd = current.plusMinutes(durationMinutes);
+                occurrences.add(new Event(base, current, instanceEnd));
+            }
             current = updateCurrent(current, rule.getRecurrentInterval());
             currentCount++;
 
@@ -64,6 +67,15 @@ public class RecurrenceManager{
             }
         }
         return occurrences;
+    }
+    private boolean isException(int eventId, LocalDateTime date, List<ExceptionRule> exceptions){
+        if (exceptions == null) return false;
+        for (ExceptionRule ex: exceptions){
+            if (ex.getEventId() == eventId && ex.getExceptionDate().equals(date)){
+                return true;
+            }
+        }
+        return false;
     }
 
     public LocalDateTime updateCurrent(LocalDateTime current, String interval){

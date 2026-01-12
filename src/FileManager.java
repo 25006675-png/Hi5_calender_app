@@ -19,6 +19,9 @@ public class FileManager {
 
     protected static final String ADDITIONAL_FILE_PATH = FOLDER_NAME + File.separator + "additional.csv";
     protected static final String ADDITIONAL_HEADER = "eventId,location,category,attendees";
+    protected static final String EXCEPTION_FILE = FOLDER_NAME + File.separator + "exceptions.csv";
+    protected static final String EXCEPTION_HEADER = "eventId,exceptionDate, type";
+
     private int maxEventId = 0;
 
 
@@ -110,6 +113,30 @@ public class FileManager {
         return rules;
     }
 
+    public List<ExceptionRule> loadExceptions(){
+        List<ExceptionRule> exceptions = new ArrayList<>();
+        File file = new File(EXCEPTION_FILE);
+        if (! file.exists()) return exceptions;
+
+        try (BufferedReader br = new BufferedReader(new FileReader(file))){
+            br.readLine(); // skip header
+            String line;
+            while((line = br.readLine()) != null){
+                if (line.trim().isEmpty()) continue;
+                String[] parts = line.split(",");
+                int id = Integer.parseInt(parts[0].trim());
+                LocalDateTime date = LocalDateTime.parse(parts[1].trim());
+                String type = parts[2].trim();
+                exceptions.add(new ExceptionRule(id, date, type));
+            }
+
+        }catch (IOException e){
+            System.err.println("Error loading exceptions: " + e.getMessage());
+        }
+        return exceptions;
+    }
+
+
     // Save events to CSV file
     public void saveEvents(List<Event> events) {
         File file = new File(EVENT_FILE_PATH);
@@ -161,6 +188,23 @@ public class FileManager {
             System.err.println("Error writing to " + file.getAbsolutePath() + ": " + e.getMessage());
         }
     }
+
+    public void saveExceptions(List<ExceptionRule> exceptions){
+        try (PrintWriter pw = new PrintWriter(new FileWriter(EXCEPTION_FILE))){
+            pw.println(EXCEPTION_HEADER);
+            for (ExceptionRule ex: exceptions){
+                pw.println(String.format("%d,%s,%s",
+                        ex.getEventId(),
+                        ex.getExceptionDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")),
+                        ex.getType()));
+
+            }
+
+        }catch (IOException e){
+            System.err.println("Error saving exceptions");
+        }
+    }
+
 
 
     private boolean ensureDataFolderExists() {

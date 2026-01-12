@@ -17,11 +17,12 @@ public class EventSearcher{
         List<Event> results = new ArrayList<>();
         List<Event> baseEvents = fileManager.loadEvents();
         Map<Integer, RecurrenceRule> rules = fileManager.loadRecurrentRules();
+        List<ExceptionRule> exceptions = fileManager.loadExceptions();
 
         for (Event base : baseEvents){
             int eventID = base.getEventId();
             if (rules.containsKey(eventID)){
-                results.addAll(recurrenceManager.generateOccurrences(base, rules.get(eventID), start, end));
+                results.addAll(recurrenceManager.generateOccurrences(base, rules.get(eventID), start, end, exceptions));
 
             } else{
                 // baseEvents with no recurrence - CHECK OVERLAP instead of containment

@@ -1,3 +1,5 @@
+import javax.swing.*;
+import java.io.File;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -5,10 +7,12 @@ public class ConflictDetector {
 
     private final EventSearcher searcher;
     private final RecurrenceManager recurrenceManager;
+    private final FileManager fileManager;
 
     public ConflictDetector(FileManager fileManager, RecurrenceManager recurrenceManager) {
         this.recurrenceManager = recurrenceManager;
         this.searcher = new EventSearcher(fileManager, recurrenceManager);
+        this.fileManager = fileManager;
     }
 
     /**
@@ -27,8 +31,9 @@ public class ConflictDetector {
         // We limit to 1 year or ~100 instances to avoid performance freeze on "Daily forever"
         LocalDateTime searchStart = candidate.getStartDateTime();
         LocalDateTime searchEnd = searchStart.plusYears(1); 
-        
-        List<Event> instances = recurrenceManager.generateOccurrences(candidate, rule, searchStart, searchEnd);
+
+        List<ExceptionRule> exceptions = fileManager.loadExceptions();
+        List<Event> instances = recurrenceManager.generateOccurrences(candidate, rule, searchStart, searchEnd, exceptions);
         
         for (Event inst : instances) {
             if (checkRange(inst.getStartDateTime(), inst.getEndDateTime(), candidate.getEventId())) {
