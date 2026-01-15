@@ -357,6 +357,45 @@ public class FileManager {
             }
         }
     }
+
+    public void appendExceptions(List<String> backupExceptionLines, Map<Integer, Integer> idMap) {
+        List<ExceptionRule> currentExceptions = loadExceptions();
+
+        for (String line : backupExceptionLines) {
+            if (line.trim().isEmpty()) continue;
+
+            String[] parts = line.split(",");
+            if (parts.length >= 3) {
+                try {
+                    int oldId = Integer.parseInt(parts[0].trim());
+
+                    if (idMap.containsKey(oldId)) {
+                        int newId = idMap.get(oldId);
+                        LocalDateTime date = LocalDateTime.parse(parts[1].trim());
+                        String type = parts[2].trim();
+
+                        boolean exists = false;
+                        for (ExceptionRule ex : currentExceptions) {
+                            if (ex.getEventId() == newId &&
+                                    ex.getExceptionDate().equals(date) &&
+                                    ex.getType().equals(type)) {
+                                exists = true;
+                                break;
+                            }
+                        }
+
+                        if (!exists) {
+                            currentExceptions.add(new ExceptionRule(newId, date, type));
+                        }
+                    }
+                } catch (Exception e) {
+                    // skip invalid lines
+                }
+            }
+        }
+        saveExceptions(currentExceptions);
+    }
+
         // Find the next available event ID
         public int getNextAvailableEventId() {
             return ++maxEventId;
